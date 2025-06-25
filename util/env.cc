@@ -77,28 +77,28 @@ Status WriteStringToFileSync(Env* env, const Slice& data,
                              const std::string& fname) {
   return DoWriteStringToFile(env, data, fname, true);
 }
-
+// 将fname 中的数据读到 data 中
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
-  data->clear();
+  data->clear(); // 清除data中数据，data 可能保有之前写入的数据
   SequentialFile* file;
-  Status s = env->NewSequentialFile(fname, &file);
+  Status s = env->NewSequentialFile(fname, &file); // 创建一个顺序读的对象，file中包含文件描述符和要操作的文件名
   if (!s.ok()) {
     return s;
   }
-  static const int kBufferSize = 8192;
-  char* space = new char[kBufferSize];
+  static const int kBufferSize = 8192; // 1024*8
+  char* space = new char[kBufferSize]; // 创建一个8k的缓存区域
   while (true) {
-    Slice fragment;
-    s = file->Read(kBufferSize, &fragment, space);
+    Slice fragment; // 数据片段
+    s = file->Read(kBufferSize, &fragment, space); // 将CURRENT中的内容读到 fragment 中
     if (!s.ok()) {
       break;
-    }
-    data->append(fragment.data(), fragment.size());
-    if (fragment.empty()) {
+    } // 将数据片段读到 data 中，fragment 是一个指针，每次读取的数据都放到指向的位置
+    data->append(fragment.data(), fragment.size()); // 这里发生拷贝
+    if (fragment.empty()) { // 数据没读完继续读
       break;
     }
   }
-  delete[] space;
+  delete[] space; // 释放分配的空间
   delete file;
   return s;
 }

@@ -32,19 +32,19 @@ TEST_F(EnvTest, ReadWrite) {
   ASSERT_LEVELDB_OK(env_->NewWritableFile(test_file_name, &writable_file));
 
   // Fill a file with data generated via a sequence of randomly sized writes.
-  static const size_t kDataSize = 10 * 1048576;
+  static const size_t kDataSize = 10 * 1048576; // 1048576=1024*1024
   std::string data;
   while (data.size() < kDataSize) {
     int len = rnd.Skewed(18);  // Up to 2^18 - 1, but typically much smaller
     std::string r;
-    test::RandomString(&rnd, len, &r);
-    ASSERT_LEVELDB_OK(writable_file->Append(r));
-    data += r;
+    test::RandomString(&rnd, len, &r); // 获取指定长度的字符串,内容随机生成
+    ASSERT_LEVELDB_OK(writable_file->Append(r)); // 将数据添加到缓冲或者写入文件中
+    data += r; // 这个data用于比较
     if (rnd.OneIn(10)) {
-      ASSERT_LEVELDB_OK(writable_file->Flush());
+      ASSERT_LEVELDB_OK(writable_file->Flush()); // 数据写入文件
     }
   }
-  ASSERT_LEVELDB_OK(writable_file->Sync());
+  ASSERT_LEVELDB_OK(writable_file->Sync()); // 将缓冲区的数据写入磁盘
   ASSERT_LEVELDB_OK(writable_file->Close());
   delete writable_file;
 
@@ -54,12 +54,12 @@ TEST_F(EnvTest, ReadWrite) {
   std::string read_result;
   std::string scratch;
   while (read_result.size() < data.size()) {
-    int len = std::min<int>(rnd.Skewed(18), data.size() - read_result.size());
+    int len = std::min<int>(rnd.Skewed(18), data.size() - read_result.size()); // 减去已读取的长度
     scratch.resize(std::max(len, 1));  // at least 1 so &scratch[0] is legal
-    Slice read;
+    Slice read; // 新变量
     ASSERT_LEVELDB_OK(sequential_file->Read(len, &read, &scratch[0]));
-    if (len > 0) {
-      ASSERT_GT(read.size(), 0);
+    if (len > 0) { // len 是要读取的长度
+      ASSERT_GT(read.size(), 0); // read.size() 实际读取的长度
     }
     ASSERT_LE(read.size(), len);
     read_result.append(read.data(), read.size());
@@ -70,13 +70,13 @@ TEST_F(EnvTest, ReadWrite) {
 
 TEST_F(EnvTest, RunImmediately) {
   struct RunState {
-    port::Mutex mu;
-    port::CondVar cvar{&mu};
+    port::Mutex mu; // 互斥变量
+    port::CondVar cvar{&mu}; // 条件变量
     bool called = false;
 
     static void Run(void* arg) {
       RunState* state = reinterpret_cast<RunState*>(arg);
-      MutexLock l(&state->mu);
+      MutexLock l(&state->mu); // 加锁
       ASSERT_EQ(state->called, false);
       state->called = true;
       state->cvar.Signal();
@@ -88,7 +88,7 @@ TEST_F(EnvTest, RunImmediately) {
 
   MutexLock l(&state.mu);
   while (!state.called) {
-    state.cvar.Wait();
+    state.cvar.Wait(); // wait 当前线程阻塞直至条件变量被通知
   }
 }
 

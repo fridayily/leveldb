@@ -24,6 +24,7 @@ enum Tag {
 };
 
 void VersionEdit::Clear() {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"clear");
   comparator_.clear();
   log_number_ = 0;
   prev_log_number_ = 0;
@@ -42,7 +43,7 @@ void VersionEdit::Clear() {
 void VersionEdit::EncodeTo(std::string* dst) const {
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
-    PutLengthPrefixedSlice(dst, comparator_);
+    PutLengthPrefixedSlice(dst, comparator_); // 将比较器名称写入dst
   }
   if (has_log_number_) {
     PutVarint32(dst, kLogNumber);
@@ -62,9 +63,9 @@ void VersionEdit::EncodeTo(std::string* dst) const {
   }
 
   for (size_t i = 0; i < compact_pointers_.size(); i++) {
-    PutVarint32(dst, kCompactPointer);
-    PutVarint32(dst, compact_pointers_[i].first);  // level
-    PutLengthPrefixedSlice(dst, compact_pointers_[i].second.Encode());
+    PutVarint32(dst, kCompactPointer); // 添加 VersionEdit 的 tag
+    PutVarint32(dst, compact_pointers_[i].first);  // 存入 key 的层级
+    PutLengthPrefixedSlice(dst, compact_pointers_[i].second.Encode()); // 存入 internal_key 的长度和 internal_key
   }
 
   for (const auto& deleted_file_kvp : deleted_files_) {
@@ -74,8 +75,8 @@ void VersionEdit::EncodeTo(std::string* dst) const {
   }
 
   for (size_t i = 0; i < new_files_.size(); i++) {
-    const FileMetaData& f = new_files_[i].second;
-    PutVarint32(dst, kNewFile);
+    const FileMetaData& f = new_files_[i].second; // 获取文件元信息
+    PutVarint32(dst, kNewFile); // 标记是添加文件
     PutVarint32(dst, new_files_[i].first);  // level
     PutVarint64(dst, f.number);
     PutVarint64(dst, f.file_size);
@@ -105,7 +106,7 @@ static bool GetLevel(Slice* input, int* level) {
 
 Status VersionEdit::DecodeFrom(const Slice& src) {
   Clear();
-  Slice input = src;
+  Slice input = src; // input 和 src 指向同一个地址
   const char* msg = nullptr;
   uint32_t tag;
 
@@ -115,7 +116,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
   FileMetaData f;
   Slice str;
   InternalKey key;
-
+  // VersionEdit 中的 tag 被编码为一个 Varint32
   while (msg == nullptr && GetVarint32(&input, &tag)) {
     switch (tag) {
       case kComparator:
@@ -160,7 +161,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
 
       case kCompactPointer:
-        if (GetLevel(&input, &level) && GetInternalKey(&input, &key)) {
+        if (GetLevel(&input, &level) && GetInternalKey(&input, &key)) { // && 先计算左边再计算右边
           compact_pointers_.push_back(std::make_pair(level, key));
         } else {
           msg = "compaction pointer";

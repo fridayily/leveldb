@@ -75,23 +75,23 @@ TEST_F(FilterBlockTest, MultiChunk) {
   FilterBlockBuilder builder(&policy_);
 
   // First filter
-  builder.StartBlock(0);
+  builder.StartBlock(0); // 若条件符合，创建过滤器
   builder.AddKey("foo");
-  builder.StartBlock(2000);
+  builder.StartBlock(2000); // 若条件符合，创建过滤器
   builder.AddKey("bar");
 
   // Second filter
-  builder.StartBlock(3100);
+  builder.StartBlock(3100); // 若条件符合，创建过滤器
   builder.AddKey("box");
 
   // Third filter is empty
 
   // Last filter
-  builder.StartBlock(9000);
+  builder.StartBlock(9000); // 若条件符合，创建过滤器
   builder.AddKey("box");
   builder.AddKey("hello");
 
-  Slice block = builder.Finish();
+  Slice block = builder.Finish(); // 若条件符合，创建过滤器
   FilterBlockReader reader(&policy_, block);
 
   // Check first filter

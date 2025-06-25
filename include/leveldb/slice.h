@@ -23,7 +23,7 @@
 #include "leveldb/export.h"
 
 namespace leveldb {
-
+/* 自定义的字符串处理类 */
 class LEVELDB_EXPORT Slice {
  public:
   // Create an empty slice.
@@ -67,7 +67,7 @@ class LEVELDB_EXPORT Slice {
   // Drop the first "n" bytes from this slice.
   void remove_prefix(size_t n) {
     assert(n <= size());
-    data_ += n;
+    data_ += n; // 指针偏移 n 个位置
     size_ -= n;
   }
 
@@ -99,7 +99,7 @@ inline bool operator!=(const Slice& x, const Slice& y) { return !(x == y); }
 
 inline int Slice::compare(const Slice& b) const {
   const size_t min_len = (size_ < b.size_) ? size_ : b.size_;
-  int r = memcmp(data_, b.data_, min_len);
+  int r = memcmp(data_, b.data_, min_len); // 不相等返回不同字符的差值
   if (r == 0) {
     if (size_ < b.size_)
       r = -1;

@@ -6,9 +6,8 @@
 #define STORAGE_LEVELDB_INCLUDE_OPTIONS_H_
 
 #include <cstddef>
-
+#include "leveldb/spd_logger.h"
 #include "leveldb/export.h"
-
 namespace leveldb {
 
 class Cache;
@@ -79,7 +78,7 @@ struct LEVELDB_EXPORT Options {
   // so you may wish to adjust this parameter to control memory usage.
   // Also, a larger write buffer will result in a longer recovery time
   // the next time the database is opened.
-  size_t write_buffer_size = 4 * 1024 * 1024;
+  size_t write_buffer_size = 4 * 1024 * 1024; // 写缓冲区大小，即 memtable 大小
 
   // Number of open files that can be used by the DB.  You may need to
   // increase this if your database has a large working set (budget
@@ -109,7 +108,7 @@ struct LEVELDB_EXPORT Options {
   // Most clients should leave this parameter alone.  However if your
   // filesystem is more efficient with larger files, you could
   // consider increasing the value.  The downside will be longer
-  // compactions and hence longer latency/performance hiccups.
+  // compactions and hence longer latency/performance hiccups(打嗝，小延迟).
   // Another reason to increase this parameter might be when you are
   // initially populating a large database.
   size_t max_file_size = 2 * 1024 * 1024;

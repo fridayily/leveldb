@@ -4,9 +4,10 @@
 
 #include "db/version_set.h"
 
-#include "gtest/gtest.h"
 #include "util/logging.h"
 #include "util/testutil.h"
+
+#include "gtest/gtest.h"
 
 namespace leveldb {
 
@@ -20,19 +21,20 @@ class FindFileTest : public testing::Test {
     }
   }
 
+  // add 一次，添加一个文件
   void Add(const char* smallest, const char* largest,
            SequenceNumber smallest_seq = 100,
            SequenceNumber largest_seq = 100) {
     FileMetaData* f = new FileMetaData;
     f->number = files_.size() + 1;
-    f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);
-    f->largest = InternalKey(largest, largest_seq, kTypeValue);
-    files_.push_back(f);
+    f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);  // 最小 key
+    f->largest = InternalKey(largest, largest_seq, kTypeValue);     // 最大 key
+    files_.push_back(f);  // 将 file 的元信息添加到files_中
   }
 
   int Find(const char* key) {
-    InternalKey target(key, 100, kTypeValue);
-    InternalKeyComparator cmp(BytewiseComparator());
+    InternalKey target(key, 100, kTypeValue);         // 构造 key
+    InternalKeyComparator cmp(BytewiseComparator());  // 构造比较器
     return FindFile(cmp, files_, target.Encode());
   }
 
@@ -51,6 +53,34 @@ class FindFileTest : public testing::Test {
   std::vector<FileMetaData*> files_;
 };
 
+TEST_F(FindFileTest, FileSet) {
+  struct myCompare {
+    bool operator()(const int& a, const int& b) const { return a > b; }
+  };
+
+  typedef std::set<int, myCompare> FileSet;
+  constexpr myCompare comp;
+  auto* f = new FileSet(comp);
+  f->insert(1);
+  f->insert(3);
+  f->insert(5);
+  f->insert(7);
+  f->insert(9);
+  f->insert(11);
+  std::cout << f->size() << std::endl;
+  std::cout << f->empty() << std::endl;
+  // 查找第一个不小于给定值的元素
+  const auto lower_it = f->lower_bound(4);
+  std::cout << "*lower_it: " << *lower_it << std::endl;
+
+  for (const int it : *f) {
+    std::cout << it << " ";
+  }
+  std::cout << std::endl;
+
+  delete f;
+}
+
 TEST_F(FindFileTest, Empty) {
   ASSERT_EQ(0, Find("foo"));
   ASSERT_TRUE(!Overlaps("a", "z"));
@@ -60,12 +90,14 @@ TEST_F(FindFileTest, Empty) {
 }
 
 TEST_F(FindFileTest, Single) {
+  // 添加一个文件
   Add("p", "q");
-  ASSERT_EQ(0, Find("a"));
+  ASSERT_EQ(0,
+            Find("a"));  // 返回的是索引，在文件列表中查找第一个大于等于a的索引
   ASSERT_EQ(0, Find("p"));
   ASSERT_EQ(0, Find("p1"));
   ASSERT_EQ(0, Find("q"));
-  ASSERT_EQ(1, Find("q1"));
+  ASSERT_EQ(1, Find("q1"));  // q1 在 q 之外
   ASSERT_EQ(1, Find("z"));
 
   ASSERT_TRUE(!Overlaps("a", "b"));
@@ -102,7 +134,7 @@ TEST_F(FindFileTest, Multiple) {
   ASSERT_EQ(1, Find("201"));
   ASSERT_EQ(1, Find("249"));
   ASSERT_EQ(1, Find("250"));
-  ASSERT_EQ(2, Find("251"));
+  ASSERT_EQ(2, Find("251"));  // 返回文件列表中第一个max_key大于 查找key 的索引
   ASSERT_EQ(2, Find("299"));
   ASSERT_EQ(2, Find("300"));
   ASSERT_EQ(2, Find("349"));
@@ -159,7 +191,7 @@ TEST_F(FindFileTest, OverlapSequenceChecks) {
 TEST_F(FindFileTest, OverlappingFiles) {
   Add("150", "600");
   Add("400", "500");
-  disjoint_sorted_files_ = false;
+  disjoint_sorted_files_ = false;  // 文件之间有相交数据
   ASSERT_TRUE(!Overlaps("100", "149"));
   ASSERT_TRUE(!Overlaps("601", "700"));
   ASSERT_TRUE(Overlaps("100", "150"));
@@ -315,17 +347,64 @@ TEST_F(AddBoundaryInputsTest, TestDisjoinFilePointers) {
       CreateFileMetaData(1, InternalKey("100", 4, kTypeValue),
                          InternalKey(InternalKey("100", 3, kTypeValue)));
 
-  level_files_.push_back(f2);
-  level_files_.push_back(f3);
-  level_files_.push_back(f4);
+  level_files_.push_back(f2);  // (100,6) (100,5)
+  level_files_.push_back(f3);  // (100,2) (300,1)
+  level_files_.push_back(f4);  // (100,4) (100,3)
 
-  compaction_files_.push_back(f1);
+  compaction_files_.push_back(f1);  // (100,6) (100,5)
 
   AddBoundaryInputs(icmp_, level_files_, &compaction_files_);
   ASSERT_EQ(3, compaction_files_.size());
   ASSERT_EQ(f1, compaction_files_[0]);
   ASSERT_EQ(f4, compaction_files_[1]);
   ASSERT_EQ(f3, compaction_files_[2]);
+}
+
+TEST_F(AddBoundaryInputsTest, TestGetOverlappingInputs) {
+  FileMetaData* f1 =
+      CreateFileMetaData(1, InternalKey("10", 1, kTypeValue),
+                         InternalKey(InternalKey("20", 2, kTypeValue)));
+  FileMetaData* f2 =
+      CreateFileMetaData(2, InternalKey("15", 3, kTypeValue),
+                         InternalKey(InternalKey("30", 4, kTypeValue)));
+
+  std::vector<FileMetaData*> input;
+
+  level_files_.push_back(f2);
+  level_files_.push_back(f1);
+  InternalKey begin = InternalKey("5", 5, kTypeValue);
+  InternalKey end = InternalKey("15", 6, kTypeValue);
+
+  std::string dbname_ = "/tmp/db_test";
+
+  Options options_;
+  InternalKeyComparator internal_comparator_(BytewiseComparator());
+  //  table_cache_(new TableCache(dbname_, options_, TableCacheSize(options_))),
+  //  // 这里也有个 LRU
+  //
+  VersionSet* vset_ =
+      new VersionSet(dbname_, &options_, nullptr, &internal_comparator_);
+  port::Mutex mutex_;
+  mutex_.AssertHeld();
+
+  VersionEdit edit;
+  //  edit.SetNextFile(4);
+  edit.SetNextFile(5);
+
+  edit.SetLogNumber(1);
+  edit.AddFile(0, 1, 20, InternalKey("10", 1, kTypeValue),
+               InternalKey("20", 2, kTypeValue));
+  edit.AddFile(0, 2, 20, InternalKey("15", 1, kTypeValue),
+               InternalKey("30", 2, kTypeValue));
+  vset_->SetLastSequence(3);
+  vset_->LogAndApply(&edit, &mutex_);
+
+  Version* v = vset_->current();
+  v->GetOverlappingInputs(0, &begin, &end, &input);
+  for (const auto& item : input) {
+    std::cout << item->smallest.user_key().ToString() << std::endl;
+  }
+  //  GetOverlappingInputs();
 }
 
 }  // namespace leveldb

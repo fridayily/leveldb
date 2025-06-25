@@ -51,7 +51,7 @@ class Footer {
   // Footer will always occupy exactly this many bytes.  It consists
   // of two block handles and a magic number.
   enum { kEncodedLength = 2 * BlockHandle::kMaxEncodedLength + 8 };
-
+  // 40 字节存 meta_index_block+index_block, 最后8 字节存魔数，中间多余的存0
   Footer() = default;
 
   // The block handle for the metaindex block of the table

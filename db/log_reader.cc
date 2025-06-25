@@ -52,8 +52,9 @@ bool Reader::SkipToInitialBlock() {
 
   return true;
 }
-
+/* 初始 record 和 scratch 都为空 */
 bool Reader::ReadRecord(Slice* record, std::string* scratch) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"");
   if (last_record_offset_ < initial_offset_) {
     if (!SkipToInitialBlock()) {
       return false;
@@ -75,8 +76,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
     // internal buffer. Calculate the offset of the next physical record now
     // that it has returned, properly accounting for its header size.
     uint64_t physical_record_offset =
-        end_of_buffer_offset_ - buffer_.size() - kHeaderSize - fragment.size();
-
+        end_of_buffer_offset_ - buffer_.size() - kHeaderSize - fragment.size(); // fragment 为取出的数据
+    //  (总共可读的长度 - 剩余可读长度 - 本次读取长度  ) = 上次读取的长度累计
     if (resyncing_) {
       if (record_type == kMiddleType) {
         continue;
@@ -90,6 +91,11 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
     switch (record_type) {
       case kFullType:
+        // TEST_F(LogTest, UnexpectedFullType)
+        // 如果前一次碰到了 kFirstType, in_fragmented_record 被设置为 true
+        // 再次读取又碰到了 kFullType ，则出现异常
+        // 之前读取的数据放在 scratch 中，这里会报告 ReportCorruption
+        //
         if (in_fragmented_record) {
           // Handle bug in earlier versions of log::Writer where
           // it could emit an empty kFirstType record at the tail end
@@ -99,10 +105,12 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
             ReportCorruption(scratch->size(), "partial record without end(1)");
           }
         }
+        // 记录上次读取长度累计值
         prospective_record_offset = physical_record_offset;
         scratch->clear();
-        *record = fragment;
-        last_record_offset_ = prospective_record_offset;
+        // 存储本次读取数据
+        *record = fragment; // 数据存入 record
+        last_record_offset_ = prospective_record_offset; // 上一次读取记录的偏移量
         return true;
 
       case kFirstType:
@@ -185,24 +193,27 @@ void Reader::ReportDrop(uint64_t bytes, const Status& reason) {
     reporter_->Corruption(static_cast<size_t>(bytes), reason);
   }
 }
-
+/* result初始为空指针, 该函数返回一个 record 指向该指针 */
 unsigned int Reader::ReadPhysicalRecord(Slice* result) {
   while (true) {
-    if (buffer_.size() < kHeaderSize) {
-      if (!eof_) {
+    // 第一次读取时 buffer 为空，符合条件，读取 kBlockSize 字节数据到 buffer_ 中
+    // 当buffer_读取完毕后，如果继续读取，也会进入，碰到 EOF,返回 KEof
+    //
+    if (buffer_.size() < kHeaderSize) { // buffer_ 为全局的,记录了剩余要读的数据 ,第一次 size 为0
+      if (!eof_) {  // 碰到 eof 标志
         // Last read was a full read, so this is a trailer to skip
-        buffer_.clear();
-        Status status = file_->Read(kBlockSize, &buffer_, backing_store_);
-        end_of_buffer_offset_ += buffer_.size();
+        buffer_.clear();  // 如果 contents_ 里面数据较少,会读出全部数据
+        Status status = file_->Read(kBlockSize, &buffer_, backing_store_); // 读取一整个 KBlockSize
+        end_of_buffer_offset_ += buffer_.size(); // buffer_ 是 read 读出来的
         if (!status.ok()) {
           buffer_.clear();
           ReportDrop(kBlockSize, status);
           eof_ = true;
           return kEof;
-        } else if (buffer_.size() < kBlockSize) {
+        } else if (buffer_.size() < kBlockSize) { // 读出来的数据少于 KBlock 数据,说明全部读出,则设置结束符
           eof_ = true;
         }
-        continue;
+        continue; // 若成功读出数据，buffer_.size()大于 kHeaderSize 跳出 while 循环
       } else {
         // Note that if buffer_ is non-empty, we have a truncated header at the
         // end of the file, which can be caused by the writer crashing in the
@@ -213,14 +224,14 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
       }
     }
 
-    // Parse the header
-    const char* header = buffer_.data();
-    const uint32_t a = static_cast<uint32_t>(header[4]) & 0xff;
-    const uint32_t b = static_cast<uint32_t>(header[5]) & 0xff;
-    const unsigned int type = header[6];
-    const uint32_t length = a | (b << 8);
-    if (kHeaderSize + length > buffer_.size()) {
-      size_t drop_size = buffer_.size();
+    // Parse the header  读出了有效数据，解析 header
+    const char* header = buffer_.data(); // buffer_ 包含的这个数据,header 指针指向开始位置
+    const uint32_t a = static_cast<uint32_t>(header[4]) & 0xff; // 日志长度
+    const uint32_t b = static_cast<uint32_t>(header[5]) & 0xff; // 日志长度
+    const unsigned int type = header[6];  // 存储类型 Record Type
+    const uint32_t length = a | (b << 8); // 转换数据的长度
+    if (kHeaderSize + length > buffer_.size()) { // kHeaderSize + length 是一整条数据的长度  buffer_ 是整个日志block中含数据的长度
+      size_t drop_size = buffer_.size(); // 表明一条 record 记录大于剩余可读的数据,表明有异常
       buffer_.clear();
       if (!eof_) {
         ReportCorruption(drop_size, "bad record length");
@@ -242,9 +253,9 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
 
     // Check crc
     if (checksum_) {
-      uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(header));
-      uint32_t actual_crc = crc32c::Value(header + 6, 1 + length);
-      if (actual_crc != expected_crc) {
+      uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(header)); // 固定32字节是CRC
+      uint32_t actual_crc = crc32c::Value(header + 6, 1 + length); // 为什么是6, 因为 checksum 是 type(RecordType)+data 计算出来的
+      if (actual_crc != expected_crc) { // 读取的 checksum 和 重新计算的 crc 是否相同
         // Drop the rest of the buffer since "length" itself may have
         // been corrupted and if we trust it, we could find some
         // fragment of a real log record that just happens to look
@@ -256,8 +267,8 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
       }
     }
 
-    buffer_.remove_prefix(kHeaderSize + length);
-
+    buffer_.remove_prefix(kHeaderSize + length); // 偏移一条 record 的长度
+    // end_of_buffer_offset_ 是数据结束位置的偏移量, buffer_.size() 是剩余未读取的大小  (kHeaderSize + length) 为一个record 长度
     // Skip physical record that started before initial_offset_
     if (end_of_buffer_offset_ - buffer_.size() - kHeaderSize - length <
         initial_offset_) {
@@ -265,7 +276,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
       return kBadRecord;
     }
 
-    *result = Slice(header + kHeaderSize, length);
+    *result = Slice(header + kHeaderSize, length); // 取出一条数据,没有数据拷贝,指向实际数据地址
     return type;
   }
 }

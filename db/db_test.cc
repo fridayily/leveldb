@@ -4,25 +4,27 @@
 
 #include "leveldb/db.h"
 
-#include <atomic>
-#include <cinttypes>
-#include <string>
-
-#include "gtest/gtest.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include <atomic>
+#include <cinttypes>
+#include <string>
+
 #include "leveldb/cache.h"
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
 #include "leveldb/table.h"
+
 #include "port/port.h"
 #include "port/thread_annotations.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/testutil.h"
+
+#include "gtest/gtest.h"
 
 namespace leveldb {
 
@@ -121,7 +123,8 @@ class SpecialEnv : public EnvWrapper {
   bool count_random_reads_;
   AtomicCounter random_read_counter_;
 
-  explicit SpecialEnv(Env* base)
+  explicit SpecialEnv(
+      Env* base)  //  explicit 创建对象的时候不能进行隐式类型转换
       : EnvWrapper(base),
         delay_data_sync_(false),
         data_sync_error_(false),
@@ -192,6 +195,7 @@ class SpecialEnv : public EnvWrapper {
 
     Status s = target()->NewWritableFile(f, r);
     if (s.ok()) {
+      // 判断 .ldb 是否在f中，返回第一个 .ldb 出现之后的字符串
       if (strstr(f.c_str(), ".ldb") != nullptr ||
           strstr(f.c_str(), ".log") != nullptr) {
         *r = new DataFile(this, *r);
@@ -240,6 +244,13 @@ class DBTest : public testing::Test {
     dbname_ = testing::TempDir() + "db_test";
     DestroyDB(dbname_, Options());
     db_ = nullptr;
+
+    // 修改打开文件的配置
+    //    Options options = CurrentOptions();
+    //    options.compression = kNoCompression;
+    //    options.env = env_;
+    //    options.block_restart_interval = 2;
+    //    options.write_buffer_size = 100000;  // Small write buffer
     Reopen();
   }
 
@@ -252,9 +263,9 @@ class DBTest : public testing::Test {
 
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
-  bool ChangeOptions() {
+  bool ChangeOptions() {  // 改变选项，进行下一个测试
     option_config_++;
-    if (option_config_ >= kEnd) {
+    if (option_config_ >= kEnd) {  // 结束测试
       return false;
     } else {
       DestroyAndReopen();
@@ -314,7 +325,7 @@ class DBTest : public testing::Test {
 
     return DB::Open(opts, dbname_, &db_);
   }
-
+  // Put 的执行同时另外一个线程可能在执行 compaction
   Status Put(const std::string& k, const std::string& v) {
     return db_->Put(WriteOptions(), k, v);
   }
@@ -331,7 +342,7 @@ class DBTest : public testing::Test {
     } else if (!s.ok()) {
       result = s.ToString();
     }
-    return result;
+    return result;  // 返回取出来的 v
   }
 
   // Return a string that contains all key,value pairs in order,
@@ -538,6 +549,60 @@ class DBTest : public testing::Test {
   int option_config_;
 };
 
+TEST(RandTest, Uniform) {
+  Random rnd(test::RandomSeed());
+
+  for (int i = 0; i < 100; ++i) {
+    uint32_t n = rnd.Uniform(100);
+    std::cout << n << std::endl;
+  }
+}
+
+TEST_F(DBTest, MySelfBatch) {
+  WriteBatch batch;
+  int N = 10;
+  for (int i = 0; i < N; ++i) {
+    std::string key = std::string("key") + std::to_string(i);
+    std::string val = std::string("value") + std::to_string(i);
+    batch.Put(key, val);
+  }
+  Status status = db_->Write(WriteOptions(), &batch);
+
+  for (int i = N; i < 2 * N; ++i) {
+    std::string key = std::string("key") + std::to_string(i);
+    std::string val = std::string("value") + std::to_string(i);
+    batch.Put(key, val);
+  }
+  status = db_->Write(WriteOptions(), &batch);
+
+  //  std::cout << "status: " << status1.ToString() << std::endl;
+  //  assert(status1.ok());
+  //  std::string val;
+  //  db_->Get(ReadOptions(), "key0", &val);
+  //  std::cout << "key0: val " << val << std::endl;
+
+  Iterator* iterator = db_->NewIterator(ReadOptions());
+  iterator->SeekToFirst();
+  while (iterator->Valid()) {
+    std::cout << "key " << iterator->key().ToString() << std::endl;
+    std::cout << "value " << iterator->value().ToString() << std::endl;
+    iterator->Next();
+  }
+  delete iterator;
+}
+
+TEST_F(DBTest, MySelfSingle) {
+  long N = 200;
+  for (long i = 0; i < N; ++i) {
+    std::string key = std::string("key") + std::to_string(i);
+    std::string val = std::string(1000, 'v') + std::to_string(i);
+    Put(key, val);
+  }
+  std::string val;
+  val = Get("key0");
+  std::cout << "key0: val " << val << std::endl;
+}
+
 TEST_F(DBTest, Empty) {
   do {
     ASSERT_TRUE(db_ != nullptr);
@@ -565,8 +630,61 @@ TEST_F(DBTest, EmptyValue) {
   } while (ChangeOptions());
 }
 
+// 实际存储顺序 barv3 foov22 foov21 foov2 foov1 goov4 ioov5
+TEST_F(DBTest, SelfSimpleReadWrite) {
+  Put("foo", "v1");
+  Put("foo", "v2");
+  Put("bar", "v3");
+  Put("goo", "v4");
+  Put("foo", "v21");
+  Put("foo", "v22");  // 相同的key 存在 skip_list  最前面
+  Put("ioo", "v5");
+
+  std::string s1 = Get("foo");
+  std::cout << "s1 " << s1 << std::endl;
+
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ReadOptions read_options;
+  read_options.snapshot = snapshot;
+  Iterator* iterator = db_->NewIterator(read_options);
+  iterator->SeekToFirst();
+  while (iterator->Valid()) {
+    std::cout << "key " << iterator->key().ToString() << std::endl;
+    iterator->Next();
+  }
+
+  delete iterator;
+  db_->ReleaseSnapshot(snapshot);
+}
+
+// 实际存储顺序 barv3 foov22 foov21 foov2 foov1 goov4 ioov5
+TEST_F(DBTest, DBTest_MySelfSingle_TestFilterReadWrite) {
+  Options options = CurrentOptions();
+
+  options.compression = kNoCompression;
+  options.reuse_logs = false;                        // Small write buffer
+  options.filter_policy = NewBloomFilterPolicy(10);  // Small write buffer
+  options.block_restart_interval = 2;
+
+  Reopen(&options);
+
+  Put("abc", "v1");
+  Put("abcd", "v2");
+  Put("abcde", "v3");
+  Put("abcdef", "v4");
+  Put("abcdefg", "v5");
+  dbfull()->TEST_CompactMemTable();
+
+  std::string s1 = Get("abcd");
+}
+
 TEST_F(DBTest, ReadWrite) {
   do {
+    Options op = CurrentOptions();
+    std::cout << "--------" << std::endl;
+    std::cout << "options.filter_policy: " << op.filter_policy << std::endl;
+    std::cout << "options.reuse_logs: " << op.reuse_logs << std::endl;
+    std::cout << "options.compression: " << op.compression << std::endl;
     ASSERT_LEVELDB_OK(Put("foo", "v1"));
     ASSERT_EQ("v1", Get("foo"));
     ASSERT_LEVELDB_OK(Put("bar", "v2"));
@@ -587,6 +705,25 @@ TEST_F(DBTest, PutDeleteGet) {
   } while (ChangeOptions());
 }
 
+TEST_F(DBTest, SelfGetFromImmutableLayer) {
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.env = env_;
+  options.write_buffer_size = 100000;  // Small write buffer
+  Reopen(&options);
+
+  ASSERT_LEVELDB_OK(Put("foo", "v1"));
+  ASSERT_EQ("v1", Get("foo"));
+
+  // Block sync calls. 不允许store 之前的操作重排到store 之后
+  env_->delay_data_sync_.store(true, std::memory_order_release);
+  Put("k1", std::string(100000, 'x'));  // Fill memtable.
+  Put("k2", std::string(100000, 'y'));  // Trigger compaction.
+  ASSERT_EQ("v1", Get("foo"));
+  // Release sync calls.
+  env_->delay_data_sync_.store(false, std::memory_order_release);
+}
+
 TEST_F(DBTest, GetFromImmutableLayer) {
   do {
     Options options = CurrentOptions();
@@ -597,7 +734,7 @@ TEST_F(DBTest, GetFromImmutableLayer) {
     ASSERT_LEVELDB_OK(Put("foo", "v1"));
     ASSERT_EQ("v1", Get("foo"));
 
-    // Block sync calls.
+    // Block sync calls. 不允许store 之前的操作重排到store 之后
     env_->delay_data_sync_.store(true, std::memory_order_release);
     Put("k1", std::string(100000, 'x'));  // Fill memtable.
     Put("k2", std::string(100000, 'y'));  // Trigger compaction.
@@ -605,6 +742,101 @@ TEST_F(DBTest, GetFromImmutableLayer) {
     // Release sync calls.
     env_->delay_data_sync_.store(false, std::memory_order_release);
   } while (ChangeOptions());
+}
+
+TEST_F(DBTest, SelfGetFromVersions) {
+  Options new_options = CurrentOptions();
+  new_options.create_if_missing = true;
+  new_options.filter_policy = nullptr;   // Cannot use bloom filters
+  new_options.write_buffer_size = 1000;  // Compact more often
+  new_options.compression = kNoCompression;
+  new_options.block_restart_interval = 2;
+
+  DestroyAndReopen(&new_options);
+
+  Put("abc", "v1");
+  Put("abcd", "v2");
+  Put("abcde", "v3");
+  Put("abcdef", "v4");
+  Put("abcdefg", "v5");
+  dbfull()
+      ->TEST_CompactMemTable();  // 调用dbfull()函数返回DBImpl对象，然后调用TEST_CompactMemTable
+  std::string v = Get("abc");
+  std::cout << "v: " << v << std::endl;
+}
+
+TEST_F(DBTest, VersionOverlapping) { dbfull()->TEST_CompactMemTable(); }
+
+TEST_F(DBTest, CompactFiles) {
+  Options new_options = CurrentOptions();
+  new_options.create_if_missing = true;
+  new_options.filter_policy = nullptr;   // Cannot use bloom filters
+  new_options.write_buffer_size = 1000;  // Compact more often
+  new_options.compression = kNoCompression;
+  new_options.block_restart_interval = 2;
+
+  DestroyAndReopen(&new_options);
+
+  Put("a1", "v1");
+  Put("a12", "v2");
+  Put("a123", "v3");
+  Put("a1234", "v4");
+  Put("a12345", "v5");
+  dbfull()->TEST_CompactMemTable();
+
+  Put("b1", "mn1");
+  Delete("a1");
+  Put("b12", "mn2");
+  Put("b123", "mn3");
+  Put("b1234", "mn4");
+  Put("b12345", "mn5");
+  dbfull()->TEST_CompactMemTable();
+
+  Put("c1", "v1");
+  Delete("b1");
+  Put("c12", "v2");
+  Put("c123", "v3");
+  Put("c1234", "v4");
+  Put("c12345", "v5");
+  dbfull()->TEST_CompactMemTable();
+
+  Put("d1", "mn1");
+  Delete("c1");
+  Put("d12", "mn2");
+  Put("d123", "mn3");
+  Put("d1234", "mn4");
+  Put("d12345", "mn5");
+  dbfull()->TEST_CompactMemTable();
+
+  Put("e1", "mn1");
+  Delete("d1");
+  Put("e12", "mn2");
+  Put("e123", "mn3");
+  Put("e1234", "mn4");
+  Put("e12345", "mn5");
+  dbfull()->TEST_CompactMemTable();
+
+  Put("f1", "mn1");
+  Delete("e1");
+  Put("f12", "mn2");
+  Put("f123", "mn3");
+  Put("f1234", "mn4");
+  Put("f12345", "mn5");
+  dbfull()->TEST_CompactMemTable();
+
+  std::vector<std::string> filenames;
+  leveldb::Status status = env_->GetChildren(
+      dbname_, &filenames);  // 将文件夹下的文件名都存到filenames中
+  if (!status.ok()) {
+    return;
+  }
+
+  for (int i = 0; i < filenames.size(); ++i) {
+    std::cout << filenames[i] << std::endl;
+  }
+
+  std::string v = Get("abc");
+  std::cout << "v: " << v << std::endl;
 }
 
 TEST_F(DBTest, GetFromVersions) {
@@ -624,6 +856,22 @@ TEST_F(DBTest, GetMemUsage) {
     ASSERT_GT(mem_usage, 0);
     ASSERT_LT(mem_usage, 5 * 1024 * 1024);
   } while (ChangeOptions());
+}
+// 插入a,b,c 三个key，每个key 都会加 sequence,即  a1,b2,c3
+// 如果插入 b,b,a  skiplist 存储顺序为 a3,b2,b1
+// 如果不指定版本号，get(b), 会在skip_list 中查找 b3,返回 b2,
+// 如果指定版本号 1，get(b), 会在skip_list 中查找 b1,返回 b1
+TEST_F(DBTest, GetSnapshotSmall) {
+  ASSERT_LEVELDB_OK(Put("b", "vb_1"));
+  const Snapshot* s1 = db_->GetSnapshot();
+  ASSERT_LEVELDB_OK(Put("b", "vb_2"));
+  ASSERT_LEVELDB_OK(Put("a", "v_a1"));
+  ASSERT_EQ("vb_2", Get("b"));
+  ASSERT_EQ("vb_1", Get("b", s1));
+  dbfull()->TEST_CompactMemTable();
+  ASSERT_EQ("vb_2", Get("b"));
+  ASSERT_EQ("vb_1", Get("b", s1));
+  db_->ReleaseSnapshot(s1);
 }
 
 TEST_F(DBTest, GetSnapshot) {
@@ -676,7 +924,11 @@ TEST_F(DBTest, IterateOverEmptySnapshot) {
     read_options.snapshot = snapshot;
     ASSERT_LEVELDB_OK(Put("foo", "v1"));
     ASSERT_LEVELDB_OK(Put("foo", "v2"));
+    ASSERT_LEVELDB_OK(Delete("foo"));
+    ASSERT_LEVELDB_OK(Put("foo", "v3"));
 
+    // 这里 read_option 指定了版本号，读取的是版本号之前操作的数据，故迭代器
+    // SeekToFirst 后无效
     Iterator* iterator1 = db_->NewIterator(read_options);
     iterator1->SeekToFirst();
     ASSERT_TRUE(!iterator1->Valid());
@@ -699,6 +951,8 @@ TEST_F(DBTest, GetLevel0Ordering) {
     // below generates two level-0 files where the earlier one comes
     // before the later one in the level-0 file list since the earlier
     // one has a smaller "smallest" key.
+
+    // 实际一个level-1 一个 level-2
     ASSERT_LEVELDB_OK(Put("bar", "b"));
     ASSERT_LEVELDB_OK(Put("foo", "v1"));
     dbfull()->TEST_CompactMemTable();
@@ -706,6 +960,19 @@ TEST_F(DBTest, GetLevel0Ordering) {
     dbfull()->TEST_CompactMemTable();
     ASSERT_EQ("v2", Get("foo"));
   } while (ChangeOptions());
+}
+
+TEST_F(DBTest, GetOrderedByLevelsDemo) {
+  Put("a", "v1");
+  Put("b", "v2");
+  Put("c", "v3");
+  Put("d", "v4");
+  Put("e", "v5");
+  Compact("a", "c");
+  Put("f", "v6");
+
+  dbfull()->TEST_CompactMemTable();
+  ASSERT_EQ("v1", Get("a"));
 }
 
 TEST_F(DBTest, GetOrderedByLevels) {
@@ -735,6 +1002,62 @@ TEST_F(DBTest, GetPicksCorrectFile) {
   } while (ChangeOptions());
 }
 
+TEST_F(DBTest, GetEncountersEmptyLevelDemo) {
+  // Arrange for the following to happen:
+  //   * sstable A in level 0
+  //   * nothing in level 1
+  //   * sstable B in level 2
+  // Then do enough Get() calls to arrange for an automatic compaction
+  // of sstable A.  A bug would cause the compaction to be marked as
+  // occurring at level 1 (instead of the correct level 0).
+
+  // Step 1: First place sstables in levels 0 and 2
+  int compaction_count = 0;
+  while (NumTableFilesAtLevel(0) == 0 || NumTableFilesAtLevel(2) == 0) {
+    // 断言失败则打印信息
+    ASSERT_LE(compaction_count, 100) << "could not fill levels 0 and 2";
+
+    compaction_count++;
+
+    std::cout << "-----" << std::endl;
+    std::cout << "0: " << NumTableFilesAtLevel(0) << std::endl;
+    std::cout << "1: " << NumTableFilesAtLevel(1) << std::endl;
+    std::cout << "2: " << NumTableFilesAtLevel(2) << std::endl;
+    std::cout << "compaction_count: " << compaction_count << std::endl;
+    std::cout << "-----" << std::endl;
+    Put("a", "begin");
+    Put("z", "end");
+    dbfull()->TEST_CompactMemTable();
+  }
+
+  std::cout << "--------------" << std::endl;
+  std::cout << "0: " << NumTableFilesAtLevel(0) << std::endl;
+  std::cout << "1: " << NumTableFilesAtLevel(1) << std::endl;
+  std::cout << "2: " << NumTableFilesAtLevel(2) << std::endl;
+  std::cout << "--------------" << std::endl;
+
+  // Step 2: clear level 1 if necessary.
+  dbfull()->TEST_CompactRange(1, nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
+
+  // Step 3: read a bunch of times
+  for (int i = 0; i < 1000; i++) {
+    ASSERT_EQ("NOT_FOUND", Get("missing"));
+  }
+
+  // Step 4: Wait for compaction to finish
+  DelayMilliseconds(1000);
+
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  std::cout << "------after delay--------" << std::endl;
+  std::cout << "0: " << NumTableFilesAtLevel(0) << std::endl;
+  std::cout << "1: " << NumTableFilesAtLevel(1) << std::endl;
+  std::cout << "2: " << NumTableFilesAtLevel(2) << std::endl;
+  std::cout << "--------------" << std::endl;
+}
+
 TEST_F(DBTest, GetEncountersEmptyLevel) {
   do {
     // Arrange for the following to happen:
@@ -748,12 +1071,27 @@ TEST_F(DBTest, GetEncountersEmptyLevel) {
     // Step 1: First place sstables in levels 0 and 2
     int compaction_count = 0;
     while (NumTableFilesAtLevel(0) == 0 || NumTableFilesAtLevel(2) == 0) {
+      // 断言失败则打印信息
       ASSERT_LE(compaction_count, 100) << "could not fill levels 0 and 2";
+
       compaction_count++;
+
+      std::cout << "-----" << std::endl;
+      std::cout << "0: " << NumTableFilesAtLevel(0) << std::endl;
+      std::cout << "1: " << NumTableFilesAtLevel(1) << std::endl;
+      std::cout << "2: " << NumTableFilesAtLevel(2) << std::endl;
+      std::cout << "compaction_count: " << compaction_count << std::endl;
+      std::cout << "-----" << std::endl;
       Put("a", "begin");
       Put("z", "end");
       dbfull()->TEST_CompactMemTable();
     }
+
+    std::cout << "--------------" << std::endl;
+    std::cout << "0: " << NumTableFilesAtLevel(0) << std::endl;
+    std::cout << "1: " << NumTableFilesAtLevel(1) << std::endl;
+    std::cout << "2: " << NumTableFilesAtLevel(2) << std::endl;
+    std::cout << "--------------" << std::endl;
 
     // Step 2: clear level 1 if necessary.
     dbfull()->TEST_CompactRange(1, nullptr, nullptr);

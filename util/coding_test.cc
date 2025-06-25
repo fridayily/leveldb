@@ -10,6 +10,21 @@
 
 namespace leveldb {
 
+
+TEST(Coding,STR){
+  std::string  s("abc");
+  std::cout << "&s " << (&s) << std::endl;
+  std::cout << "&s[0] " << (&s[0]) << std::endl;
+  /* string 后16个字节后开始存数据*/
+  std::cout << (char*) (&s[0]) - (char*)(&s) << std::endl;
+          char *p = reinterpret_cast<char*>(&s[0]);
+  *p = 'x';
+  std::cout << s << std::endl;
+}
+
+
+
+
 TEST(Coding, Fixed32) {
   std::string s;
   for (uint32_t v = 0; v < 100000; v++) {
@@ -20,10 +35,13 @@ TEST(Coding, Fixed32) {
   for (uint32_t v = 0; v < 100000; v++) {
     uint32_t actual = DecodeFixed32(p);
     ASSERT_EQ(v, actual);
-    p += sizeof(uint32_t);
+    p += sizeof(uint32_t); // 移动指针
   }
 }
-
+// pow(2,20) = 1048576
+// pow(2,20)-1 = 1048575 = 0xfffff
+// 在内存中存放顺序为 ff ff 0f 00 00 00 00 00
+// PutFixed64 保存的buffer 为 [ff,ff,0f,00,00,00,00,00]
 TEST(Coding, Fixed64) {
   std::string s;
   for (int power = 0; power <= 63; power++) {
@@ -77,12 +95,13 @@ TEST(Coding, EncodingOutput) {
 TEST(Coding, Varint32) {
   std::string s;
   for (uint32_t i = 0; i < (32 * 32); i++) {
+    // 除数 << 余数
     uint32_t v = (i / 32) << (i % 32);
     PutVarint32(&s, v);
   }
 
-  const char* p = s.data();
-  const char* limit = p + s.size();
+  const char* p = s.data(); // 起始地址
+  const char* limit = p + s.size(); // 结束地址
   for (uint32_t i = 0; i < (32 * 32); i++) {
     uint32_t expected = (i / 32) << (i % 32);
     uint32_t actual;

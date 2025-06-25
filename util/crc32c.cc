@@ -283,6 +283,7 @@ uint32_t Extend(uint32_t crc, const char* data, size_t n) {
   const uint8_t* e = p + n;
   uint32_t l = crc ^ kCRC32Xor;
 
+  /* 一次处理一个字节 */
 // Process one byte at a time.
 #define STEP1                              \
   do {                                     \

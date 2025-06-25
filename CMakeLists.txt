@@ -5,7 +5,7 @@
 cmake_minimum_required(VERSION 3.9)
 # Keep the version below in sync with the one in db.h
 project(leveldb VERSION 1.23.0 LANGUAGES C CXX)
-
+set(CMAKE_BUILD_TYPE  Debug)
 # C standard can be overridden when this is used as a sub-project.
 if(NOT CMAKE_C_STANDARD)
   # This project can use C11, but will gracefully decay down to C89.
@@ -42,6 +42,12 @@ check_library_exists(crc32c crc32c_value "" HAVE_CRC32C)
 check_library_exists(snappy snappy_compress "" HAVE_SNAPPY)
 check_library_exists(tcmalloc malloc "" HAVE_TCMALLOC)
 
+if(HAVE_SNAPPY)
+  message(STATUS "Snappy library found")
+else()
+  message(WARNING "Snappy library not found")
+endif()
+
 include(CheckCXXSymbolExists)
 # Using check_cxx_symbol_exists() instead of check_c_symbol_exists() because
 # we're including the header from C++, and feature detection should use the same
@@ -61,6 +67,7 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   # Disable RTTI.
   string(REGEX REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")
 else(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   # Enable strict prototype warnings for C code in clang and gcc.
   if(NOT CMAKE_C_FLAGS MATCHES "-Wstrict-prototypes")
@@ -68,12 +75,12 @@ else(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   endif(NOT CMAKE_C_FLAGS MATCHES "-Wstrict-prototypes")
 
   # Disable C++ exceptions.
-  string(REGEX REPLACE "-fexceptions" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
+#  string(REGEX REPLACE "-fexceptions" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+#  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
 
   # Disable RTTI.
   string(REGEX REPLACE "-frtti" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti -O0")
 endif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
 
 # Test whether -Wthread-safety is available. See
@@ -189,6 +196,11 @@ target_sources(leveldb
     "util/options.cc"
     "util/random.h"
     "util/status.cc"
+    "util/spd_logger.cc"
+
+        # 添加自己的测试
+    "util/histogram.cc"
+    "util/histogram.h"
 
   # Only CMake 3.3+ supports PUBLIC sources in targets exported by "install".
   $<$<VERSION_GREATER:CMAKE_VERSION,3.2>:PUBLIC>
@@ -204,6 +216,7 @@ target_sources(leveldb
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/options.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/slice.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/status.h"
+    "${LEVELDB_PUBLIC_INCLUDE_DIR}/spd_logger.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/table_builder.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/table.h"
     "${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"
@@ -235,6 +248,9 @@ target_include_directories(leveldb
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
+
+
+
 
 set_target_properties(leveldb
   PROPERTIES VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
@@ -277,16 +293,27 @@ if(HAVE_TCMALLOC)
   target_link_libraries(leveldb tcmalloc)
 endif(HAVE_TCMALLOC)
 
+#add_subdirectory("third_party/glog")
+#target_link_libraries(leveldb glog)
+add_subdirectory("third_party/spdlog")
+target_link_libraries(leveldb spdlog)
+
 # Needed by port_stdcxx.h
 find_package(Threads REQUIRED)
 target_link_libraries(leveldb Threads::Threads)
+
 
 add_executable(leveldbutil
   "db/leveldbutil.cc"
 )
 target_link_libraries(leveldbutil leveldb)
 
+#set(LEVELDB_BUILD_TESTS ON)
+#set(LEVELDB_BUILD_BENCHMARKS ON)
+MESSAGE(STATUS "BUILD_SHARED_LIBS: ${BUILD_SHARED_LIBS}")
+set(BUILD_SHARED_LIBS OFF)
 if(LEVELDB_BUILD_TESTS)
+  MESSAGE(STATUS "enable_testing")
   enable_testing()
 
   # Prevent overriding the parent project's compiler/linker settings on Windows.
@@ -344,8 +371,13 @@ if(LEVELDB_BUILD_TESTS)
         "util/crc32c_test.cc"
         "util/hash_test.cc"
         "util/logging_test.cc"
+
+        "util/histogram_test.cc"
+        "util/env_test.cc"
+        "util/comparator_test.cc"
     )
   endif(NOT BUILD_SHARED_LIBS)
+#  target_link_libraries(gtest spdlog)
   target_link_libraries(leveldb_tests leveldb gmock gtest gtest_main)
   target_compile_definitions(leveldb_tests
     PRIVATE
@@ -464,6 +496,7 @@ int main() {
   endif(HAVE_KYOTOCABINET)
 endif(LEVELDB_BUILD_BENCHMARKS)
 
+set(LEVELDB_INSTALL OFF)
 if(LEVELDB_INSTALL)
   install(TARGETS leveldb
     EXPORT leveldbTargets
@@ -485,6 +518,7 @@ if(LEVELDB_INSTALL)
       "${LEVELDB_PUBLIC_INCLUDE_DIR}/options.h"
       "${LEVELDB_PUBLIC_INCLUDE_DIR}/slice.h"
       "${LEVELDB_PUBLIC_INCLUDE_DIR}/status.h"
+      "${LEVELDB_PUBLIC_INCLUDE_DIR}/spd_logger.h"
       "${LEVELDB_PUBLIC_INCLUDE_DIR}/table_builder.h"
       "${LEVELDB_PUBLIC_INCLUDE_DIR}/table.h"
       "${LEVELDB_PUBLIC_INCLUDE_DIR}/write_batch.h"

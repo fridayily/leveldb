@@ -62,6 +62,7 @@ class SnapshotList {
 #if !defined(NDEBUG)
     snapshot->list_ = this;
 #endif  // !defined(NDEBUG)
+    // 将 snapshot 结点插入双向循环链表的尾部
     snapshot->next_ = &head_;
     snapshot->prev_ = head_.prev_;
     snapshot->prev_->next_ = snapshot;

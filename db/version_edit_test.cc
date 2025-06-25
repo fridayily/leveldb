@@ -10,11 +10,11 @@ namespace leveldb {
 
 static void TestEncodeDecode(const VersionEdit& edit) {
   std::string encoded, encoded2;
-  edit.EncodeTo(&encoded);
+  edit.EncodeTo(&encoded); // 编码到 encoded
   VersionEdit parsed;
-  Status s = parsed.DecodeFrom(encoded);
+  Status s = parsed.DecodeFrom(encoded); // 解码到 parsed
   ASSERT_TRUE(s.ok()) << s.ToString();
-  parsed.EncodeTo(&encoded2);
+  parsed.EncodeTo(&encoded2); // parsed 是解码的结果，编码到encode2,比较第一次，第二次编码结果
   ASSERT_EQ(encoded, encoded2);
 }
 

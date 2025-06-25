@@ -9,7 +9,8 @@
 #include "leveldb/slice.h"
 
 namespace leveldb {
-
+// 缓存底层迭代器的valid()和key()方法的结果。
+// 这样做的好处是可以减少虚拟函数调用，并且提高缓存局部性，从而优化性能
 // A internal wrapper class with an interface similar to Iterator that
 // caches the valid() and key() results for an underlying iterator.
 // This can help avoid virtual function calls and also gives better
@@ -65,20 +66,20 @@ class IteratorWrapper {
   }
   void SeekToFirst() {
     assert(iter_);
-    iter_->SeekToFirst();
+    iter_->SeekToFirst(); // 将key,value 存到 iter的私有变量
     Update();
   }
   void SeekToLast() {
     assert(iter_);
     iter_->SeekToLast();
-    Update();
+    Update(); //
   }
 
  private:
   void Update() {
-    valid_ = iter_->Valid();
+    valid_ = iter_->Valid(); // 没有遍历结束就返回true
     if (valid_) {
-      key_ = iter_->key();
+      key_ = iter_->key(); // 将iter_的Key 赋值给 key_
     }
   }
 

@@ -1,14 +1,17 @@
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+ // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "gtest/gtest.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+
 #include "leveldb/env.h"
+
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/random.h"
+
+#include "gtest/gtest.h"
 
 namespace leveldb {
 namespace log {
@@ -17,7 +20,7 @@ namespace log {
 // partial string.
 static std::string BigString(const std::string& partial_string, size_t n) {
   std::string result;
-  while (result.size() < n) {
+  while (result.size() < n) {  // 这里不是遍历n次，而是大小小于n
     result.append(partial_string);
   }
   result.resize(n);
@@ -89,6 +92,8 @@ class LogTest : public testing::Test {
 
   void FixChecksum(int header_offset, int len) {
     // Compute crc of type/len/data
+    // Header is checksum (4 bytes), length (2 bytes), type (1 byte).
+    // 偏移6，即 4 checksum 和 2 length ，1 + len 为 1字节 type + len 字节数据
     uint32_t crc = crc32c::Value(&dest_.contents_[header_offset + 6], 1 + len);
     crc = crc32c::Mask(crc);
     EncodeFixed32(&dest_.contents_[header_offset], crc);
@@ -144,7 +149,7 @@ class LogTest : public testing::Test {
 
     // Read all records from expected_record_offset through the last one.
     ASSERT_LT(expected_record_offset, num_initial_offset_records_);
-    for (; expected_record_offset < num_initial_offset_records_;
+    for (; expected_record_offset < num_initial_offset_records_;  //
          ++expected_record_offset) {
       Slice record;
       std::string scratch;
@@ -165,13 +170,13 @@ class LogTest : public testing::Test {
     Status Flush() override { return Status::OK(); }
     Status Sync() override { return Status::OK(); }
     Status Append(const Slice& slice) override {
-      contents_.append(slice.data(), slice.size());
+      contents_.append(slice.data(), slice.size());  // 将数据写到 contents
       return Status::OK();
     }
 
     std::string contents_;
   };
-
+  /* 内部私有类 */
   class StringSource : public SequentialFile {
    public:
     StringSource() : force_error_(false), returned_partial_(false) {}
@@ -179,18 +184,21 @@ class LogTest : public testing::Test {
     Status Read(size_t n, Slice* result, char* scratch) override {
       EXPECT_TRUE(!returned_partial_) << "must not Read() after eof/error";
 
-      if (force_error_) {
+      if (force_error_) { // 可以手动设置 error
         force_error_ = false;
         returned_partial_ = true;
         return Status::Corruption("read error");
       }
 
-      if (contents_.size() < n) {
+      if (contents_.size() < n) {  // contents 就是目前存的日志数据大小
         n = contents_.size();
-        returned_partial_ = true;
+        returned_partial_ = true;  // 如果数据容量大小小于 n,
       }
-      *result = Slice(contents_.data(), n);
-      contents_.remove_prefix(n);
+      *result =
+          Slice(contents_.data(), n);  // 根据保存的数据创建 Slice,并保存到
+                                       // result 中,这里是指针指向,没有发生拷贝
+      contents_.remove_prefix(n);  // 指针偏移,上面已经读取n 字节到result ,如果
+                                   // contents_ 长度为n,remove后contents_指向空
       return Status::OK();
     }
 
@@ -255,10 +263,19 @@ uint64_t LogTest::initial_offset_last_record_offsets_[] = {
 };
 
 // LogTest::initial_offset_last_record_offsets_ must be defined before this.
-int LogTest::num_initial_offset_records_ =
+int LogTest::num_initial_offset_records_ =  // 测试要写入的数据条数
     sizeof(LogTest::initial_offset_last_record_offsets_) / sizeof(uint64_t);
 
 TEST_F(LogTest, Empty) { ASSERT_EQ("EOF", Read()); }
+
+TEST_F(LogTest, ReadWriteSelf) {
+  Write("ab");
+  Write("abc");
+  Write("abcd");
+  ASSERT_EQ("ab", Read());
+  ASSERT_EQ("abc", Read());
+  ASSERT_EQ("abcd", Read());
+}
 
 TEST_F(LogTest, ReadWrite) {
   Write("foo");
@@ -271,6 +288,20 @@ TEST_F(LogTest, ReadWrite) {
   ASSERT_EQ("xxxx", Read());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
+}
+
+TEST_F(LogTest, SNPRINTF) {
+  char buf[10];
+  int n = std::snprintf(buf, sizeof(buf), "%s.", "hello");
+  std::cout << "n= " << n << " buf: " << buf << std::endl;
+
+  /* 返回的长度是格式化后的长度,长度可能会大于 buf 的大小, 超出部分会截断 */
+  int m = std::snprintf(buf, sizeof(buf), "%s.", "hello world C++");
+  std::cout << "m= " << m << " buf: " << buf << std::endl;
+
+  char buf1[50];
+  int r = std::snprintf(buf1, sizeof(buf1), "%d.", 100000);
+  std::cout << "r= " << r << " buf: " << buf1 << std::endl;
 }
 
 TEST_F(LogTest, ManyBlocks) {
@@ -298,7 +329,7 @@ TEST_F(LogTest, MarginalTrailer) {
   const int n = kBlockSize - 2 * kHeaderSize;
   Write(BigString("foo", n));
   ASSERT_EQ(kBlockSize - kHeaderSize, WrittenBytes());
-  Write("");
+  Write("");  // 一个 block 刚好还剩 kHeaderSize 字节,可以写入一个 ""
   Write("bar");
   ASSERT_EQ(BigString("foo", n), Read());
   ASSERT_EQ("", Read());
@@ -311,7 +342,8 @@ TEST_F(LogTest, MarginalTrailer2) {
   const int n = kBlockSize - 2 * kHeaderSize;
   Write(BigString("foo", n));
   ASSERT_EQ(kBlockSize - kHeaderSize, WrittenBytes());
-  Write("bar");
+  Write("bar");  // 刚好还剩余 KHeaderSize 个字节,那么会将数据分成2条写入 First
+                 // 存空字节,Last 存数据
   ASSERT_EQ(BigString("foo", n), Read());
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("EOF", Read());
@@ -322,7 +354,9 @@ TEST_F(LogTest, MarginalTrailer2) {
 TEST_F(LogTest, ShortTrailer) {
   const int n = kBlockSize - 2 * kHeaderSize + 4;
   Write(BigString("foo", n));
+  // n + kHeaderSize = 写入长度
   ASSERT_EQ(kBlockSize - kHeaderSize + 4, WrittenBytes());
+
   Write("");
   Write("bar");
   ASSERT_EQ(BigString("foo", n), Read());
@@ -346,6 +380,14 @@ TEST_F(LogTest, OpenForAppend) {
   ASSERT_EQ("hello", Read());
   ASSERT_EQ("world", Read());
   ASSERT_EQ("EOF", Read());
+}
+
+TEST_F(LogTest, RandomString) {
+  const int N = 10;
+  Random write_rnd(301);
+  for (int i = 0; i < N; i++) {
+    std::cout << "i " << i << " " << RandomSkewedString(i, &write_rnd) << std::endl;
+  }
 }
 
 TEST_F(LogTest, RandomRead) {
@@ -395,6 +437,7 @@ TEST_F(LogTest, BadLength) {
   Write(BigString("bar", kPayloadSize));
   Write("foo");
   // Least significant size byte is stored in header[4].
+  // 将存储第一个record 长度加1，这样从下一个 record 开始读取
   IncrementByte(4, 1);
   ASSERT_EQ("foo", Read());
   ASSERT_EQ(kBlockSize, DroppedBytes());
@@ -435,6 +478,7 @@ TEST_F(LogTest, UnexpectedLastType) {
   ASSERT_EQ("OK", MatchError("missing start"));
 }
 
+// 设计成 kFirstType + kFullType
 TEST_F(LogTest, UnexpectedFullType) {
   Write("foo");
   Write("bar");
@@ -446,6 +490,7 @@ TEST_F(LogTest, UnexpectedFullType) {
   ASSERT_EQ("OK", MatchError("partial record without end"));
 }
 
+// KFullType + K
 TEST_F(LogTest, UnexpectedFirstType) {
   Write("foo");
   Write(BigString("bar", 100000));

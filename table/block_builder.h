@@ -26,11 +26,14 @@ class BlockBuilder {
 
   // REQUIRES: Finish() has not been called since the last call to Reset().
   // REQUIRES: key is larger than any previously added key
+  // 负责添加 key value 到block
+  // 并根据配置的重启点信息进行序列化
   void Add(const Slice& key, const Slice& value);
 
   // Finish building the block and return a slice that refers to the
   // block contents.  The returned slice will remain valid for the
   // lifetime of this builder or until Reset() is called.
+  // 添加 重启点数组信息
   Slice Finish();
 
   // Returns an estimate of the current (uncompressed) size of the block

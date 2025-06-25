@@ -22,12 +22,12 @@ Iterator::~Iterator() {
     }
   }
 }
-
+// 注册清空函数
 void Iterator::RegisterCleanup(CleanupFunction func, void* arg1, void* arg2) {
   assert(func != nullptr);
   CleanupNode* node;
   if (cleanup_head_.IsEmpty()) {
-    node = &cleanup_head_;
+    node = &cleanup_head_; // node 指向cleanup_head_ ,这段代码修改的是该指针
   } else {
     node = new CleanupNode();
     node->next = cleanup_head_.next;

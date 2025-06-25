@@ -29,14 +29,14 @@ constexpr int kTextCloseOnExecHelperExecFailedCode = 61;
 constexpr int kTextCloseOnExecHelperDup2FailedCode = 62;
 constexpr int kTextCloseOnExecHelperFoundOpenFdCode = 63;
 
-// Global set by main() and read in TestCloseOnExec.
+//// Global set by main() and read in TestCloseOnExec.
 //
 // The argv[0] value is stored in a std::vector instead of a std::string because
 // std::string does not return a mutable pointer to its buffer until C++17.
 //
 // The vector stores the string pointed to by argv[0], plus the trailing null.
 std::vector<char>* GetArgvZero() {
-  static std::vector<char> program_name;
+  static std::vector<char> program_name; // 这里有static
   return &program_name;
 }
 
@@ -79,16 +79,16 @@ int TestCloseOnExecHelperMain(char* pid_arg) {
 void GetMaxFileDescriptor(int* result_fd) {
   // Get the maximum file descriptor number.
   ::rlimit fd_rlimit;
-  ASSERT_EQ(0, ::getrlimit(RLIMIT_NOFILE, &fd_rlimit));
-  *result_fd = fd_rlimit.rlim_cur;
+  ASSERT_EQ(0, ::getrlimit(RLIMIT_NOFILE, &fd_rlimit)); // 进程能够打开的最多文件数目,将获取的值存入 fd_rlimit 中
+  *result_fd = fd_rlimit.rlim_cur; // 返回获取的值
 }
 
 // Iterates through all possible FDs and returns the currently open ones.
-//
+// 将打开的fd 存入set
 // Returns void so the implementation can use ASSERT_EQ.
 void GetOpenFileDescriptors(std::unordered_set<int>* open_fds) {
   int max_fd = 0;
-  GetMaxFileDescriptor(&max_fd);
+  GetMaxFileDescriptor(&max_fd); // 获取最大文件描述符
 
   for (int fd = 0; fd < max_fd; ++fd) {
     if (::dup2(fd, fd) != fd) {
@@ -100,7 +100,7 @@ void GetOpenFileDescriptors(std::unordered_set<int>* open_fds) {
           << "dup2() should set errno to EBADF on closed file descriptors";
       continue;
     }
-    open_fds->insert(fd);
+    open_fds->insert(fd); // 将打开的fd 添加到set中
   }
 }
 
@@ -113,11 +113,11 @@ void GetOpenFileDescriptors(std::unordered_set<int>* open_fds) {
 void GetNewlyOpenedFileDescriptor(
     const std::unordered_set<int>& baseline_open_fds, int* result_fd) {
   std::unordered_set<int> open_fds;
-  GetOpenFileDescriptors(&open_fds);
+  GetOpenFileDescriptors(&open_fds); // 将打开的 fd 存入 open_fds
   for (int fd : baseline_open_fds) {
-    ASSERT_EQ(1, open_fds.count(fd))
+    ASSERT_EQ(1, open_fds.count(fd)) // set 不允许重复，返回 1 或者 0
         << "Previously opened file descriptor was closed during test setup";
-    open_fds.erase(fd);
+    open_fds.erase(fd); // 根据baseline_open_fds 中存在的fs 移除 open_fds 中的元素
   }
   ASSERT_EQ(1, open_fds.size())
       << "Expected exactly one newly opened file descriptor during test setup";
@@ -153,10 +153,10 @@ void CheckCloseOnExecDoesNotLeakFDs(
   }
 
   int child_status = 0;
-  ASSERT_EQ(child_pid, ::waitpid(child_pid, &child_status, 0));
-  ASSERT_TRUE(WIFEXITED(child_status))
+  ASSERT_EQ(child_pid, ::waitpid(child_pid, &child_status, 0)); // 等待子进程结束，获取状态
+  ASSERT_TRUE(WIFEXITED(child_status)) //  子进程正常退出，WIFEXITED 返回真
       << "The helper process did not exit with an exit code";
-  ASSERT_EQ(0, WEXITSTATUS(child_status))
+  ASSERT_EQ(0, WEXITSTATUS(child_status)) // 返回子进程的退出码
       << "The helper process encountered an error";
 }
 

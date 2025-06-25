@@ -1022,7 +1022,7 @@ class Benchmark {
 };
 
 }  // namespace leveldb
-
+//./db_bench --num=10000000 --write_buffer_size=$((256*1024*1024))
 int main(int argc, char** argv) {
   FLAGS_write_buffer_size = leveldb::Options().write_buffer_size;
   FLAGS_max_file_size = leveldb::Options().max_file_size;

@@ -50,7 +50,7 @@ char* EncodeVarint64(char* dst, uint64_t value);
 
 // Lower-level versions of Put... that write directly into a character buffer
 // REQUIRES: dst has enough space for the value being written
-
+// 将 uint32 转为 32字节的 uint8_t*
 inline void EncodeFixed32(char* dst, uint32_t value) {
   uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
 
@@ -60,7 +60,7 @@ inline void EncodeFixed32(char* dst, uint32_t value) {
   buffer[2] = static_cast<uint8_t>(value >> 16);
   buffer[3] = static_cast<uint8_t>(value >> 24);
 }
-
+// 将int保存为字符串
 inline void EncodeFixed64(char* dst, uint64_t value) {
   uint8_t* const buffer = reinterpret_cast<uint8_t*>(dst);
 
@@ -77,7 +77,7 @@ inline void EncodeFixed64(char* dst, uint64_t value) {
 
 // Lower-level versions of Get... that read directly from a character buffer
 // without any bounds checking.
-
+ // 将32字节的 char* 转为 uint32
 inline uint32_t DecodeFixed32(const char* ptr) {
   const uint8_t* const buffer = reinterpret_cast<const uint8_t*>(ptr);
 
@@ -108,10 +108,10 @@ const char* GetVarint32PtrFallback(const char* p, const char* limit,
 inline const char* GetVarint32Ptr(const char* p, const char* limit,
                                   uint32_t* value) {
   if (p < limit) {
-    uint32_t result = *(reinterpret_cast<const uint8_t*>(p));
-    if ((result & 128) == 0) {
-      *value = result;
-      return p + 1;
+    uint32_t result = *(reinterpret_cast<const uint8_t*>(p)); // 取出一个字节解释位 uint8,
+    if ((result & 128) == 0) { // 最高位为1表示varint 结束
+      *value = result; // 将值存入value
+      return p + 1; // 地址偏移 1 字节
     }
   }
   return GetVarint32PtrFallback(p, limit, value);

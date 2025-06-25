@@ -58,7 +58,7 @@ class LOCKABLE Mutex {
 
  private:
   friend class CondVar;
-  std::mutex mu_;
+  std::mutex mu_; // 标准库的互斥锁
 };
 
 // Thinly wraps std::condition_variable.
@@ -71,15 +71,21 @@ class CondVar {
   CondVar& operator=(const CondVar&) = delete;
 
   void Wait() {
+    /* adopt_lock 假设已经被锁, unique_lock 可以更细粒度的控制锁 */
     std::unique_lock<std::mutex> lock(mu_->mu_, std::adopt_lock);
-    cv_.wait(lock);
+    // 无条件被阻塞
+    // 当前线程调用wait后将被阻塞，直到另外某个线程调用 notify 唤醒当前线程
+    // 当前线程被阻塞时，该函数会自动调用std::mutex 的unlock() 释放锁
+    // 使得其他被阻塞的线程得以继续执行
+    // 一旦当前线程获得通知，自动调用std::mutex的lock
+    cv_.wait(lock); // 可以阻塞当前线程并解锁 unique_lock 接管的信号量
     lock.release();
   }
-  void Signal() { cv_.notify_one(); }
-  void SignalAll() { cv_.notify_all(); }
+  void Signal() { cv_.notify_one(); } // 唤醒一个线程
+  void SignalAll() { cv_.notify_all(); } // 唤醒所有线程
 
  private:
-  std::condition_variable cv_;
+  std::condition_variable cv_; // 条件变量
   Mutex* const mu_;
 };
 

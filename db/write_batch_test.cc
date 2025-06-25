@@ -14,8 +14,9 @@ namespace leveldb {
 static std::string PrintContents(WriteBatch* b) {
   InternalKeyComparator cmp(BytewiseComparator());
   MemTable* mem = new MemTable(cmp);
-  mem->Ref();
+  mem->Ref(); // 引用加1
   std::string state;
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"Insert batch Into mem");
   Status s = WriteBatchInternal::InsertInto(b, mem);
   int count = 0;
   Iterator* iter = mem->NewIterator();
@@ -78,6 +79,7 @@ TEST(WriteBatchTest, Corruption) {
   batch.Delete(Slice("box"));
   WriteBatchInternal::SetSequence(&batch, 200);
   Slice contents = WriteBatchInternal::Contents(&batch);
+  // content.size -1 将 box 变为 bo, 但 batch 中记录该key 长度为3
   WriteBatchInternal::SetContents(&batch,
                                   Slice(contents.data(), contents.size() - 1));
   ASSERT_EQ(

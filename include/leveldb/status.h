@@ -18,8 +18,22 @@
 
 #include "leveldb/export.h"
 #include "leveldb/slice.h"
+#include "leveldb/spd_logger.h"
+//#include "spdlog/spdlog.h"
+//#include "spdlog/sinks/stdout_color_sinks.h"
+
+#include <iostream>
 
 namespace leveldb {
+
+//class SpdLogger {
+// public:
+//  static std::shared_ptr<spdlog::logger>& getConsoleLogger() {
+//    static std::shared_ptr<spdlog::logger> console_logger = spdlog::stdout_color_mt("console");
+//    console_logger->set_level(spdlog::level::debug);
+//    return console_logger;
+//  }
+//};
 
 class LEVELDB_EXPORT Status {
  public:
@@ -27,10 +41,17 @@ class LEVELDB_EXPORT Status {
   Status() noexcept : state_(nullptr) {}
   ~Status() { delete[] state_; }
 
+  /* 拷贝构造函数 */
   Status(const Status& rhs);
+  /* 等号运算符重载 */
   Status& operator=(const Status& rhs);
 
-  Status(Status&& rhs) noexcept : state_(rhs.state_) { rhs.state_ = nullptr; }
+  /* 移动构造函数, std::move(status),参数是旧的对象,将旧对象的state_赋值给新的对象,并
+   * 将旧对象的state_指向空 */
+  Status(Status&& rhs) noexcept : state_(rhs.state_) {
+//    printf("move constructor be called\n");
+    rhs.state_ = nullptr;
+  }
   Status& operator=(Status&& rhs) noexcept;
 
   // Return a success status.
@@ -86,6 +107,7 @@ class LEVELDB_EXPORT Status {
   };
 
   Code code() const {
+    // 第 5 位存状态码
     return (state_ == nullptr) ? kOk : static_cast<Code>(state_[4]);
   }
 
@@ -100,6 +122,7 @@ class LEVELDB_EXPORT Status {
   const char* state_;
 };
 
+/* 拷贝构造函数 */
 inline Status::Status(const Status& rhs) {
   state_ = (rhs.state_ == nullptr) ? nullptr : CopyState(rhs.state_);
 }
@@ -107,11 +130,14 @@ inline Status& Status::operator=(const Status& rhs) {
   // The following condition catches both aliasing (when this == &rhs),
   // and the common case where both rhs and *this are ok.
   if (state_ != rhs.state_) {
-    delete[] state_;
+    delete[] state_;  // state 是用 new[] 创建的
     state_ = (rhs.state_ == nullptr) ? nullptr : CopyState(rhs.state_);
   }
   return *this;
 }
+/* 等号运算符重载,接收右值 */
+/* 值和地址都交换了 */
+
 inline Status& Status::operator=(Status&& rhs) noexcept {
   std::swap(state_, rhs.state_);
   return *this;

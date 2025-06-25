@@ -13,12 +13,13 @@ namespace test {
 
 Slice RandomString(Random* rnd, int len, std::string* dst) {
   dst->resize(len);
-  for (int i = 0; i < len; i++) {
-    (*dst)[i] = static_cast<char>(' ' + rnd->Uniform(95));  // ' ' .. '~'
+  for (int i = 0; i < len; i++) {  // 返回范围内均匀分布的值
+    (*dst)[i] = static_cast<char>(' ' + rnd->Uniform(95));  // ' ' .. '~'  ASCII 0x20-0x7f
   }
   return Slice(*dst);
 }
 
+// 返回长度为len的key
 std::string RandomKey(Random* rnd, int len) {
   // Make sure to generate a wide variety of characters so we
   // test the boundary conditions for short-key optimizations.

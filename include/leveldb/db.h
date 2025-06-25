@@ -144,6 +144,11 @@ class LEVELDB_EXPORT DB {
   // end==nullptr is treated as a key after all keys in the database.
   // Therefore the following call will compact the entire database:
   //    db->CompactRange(nullptr, nullptr);
+  // 压缩key 在[begin,end] 内的底层存储
+  // 特别是，删除和覆盖的版本被丢弃，数据被重新排列，以减少访问数据所需的操作成本
+  // begin== nullptr 作为key的负无穷
+  // end= nullptr 作为key的正无穷
+  // db->CompactRange(nullptr, nullptr) 压缩整个数据库
   virtual void CompactRange(const Slice* begin, const Slice* end) = 0;
 };
 

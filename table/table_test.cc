@@ -4,35 +4,43 @@
 
 #include "leveldb/table.h"
 
-#include <map>
-#include <string>
-
-#include "gtest/gtest.h"
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include <map>
+#include <string>
+
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/iterator.h"
 #include "leveldb/table_builder.h"
+
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/format.h"
 #include "util/random.h"
 #include "util/testutil.h"
 
+#include "gtest/gtest.h"
+#include "iterator_wrapper.h"
+
 namespace leveldb {
 
-// Return reverse of "key".
-// Used to test non-lexicographic comparators.
+// Return reverse of "key". 返回 key 的反转字符串
+// Used to test non-lexicographic comparators. 用于测试非字典序比较器
 static std::string Reverse(const Slice& key) {
   std::string str(key.ToString());
-  std::string rev("");
+  std::string rev("");  // reverse_iterator 用于从后向前遍历
   for (std::string::reverse_iterator rit = str.rbegin(); rit != str.rend();
        ++rit) {
     rev.push_back(*rit);
   }
   return rev;
+}
+
+TEST(MyTest, Reverse) {
+  std::string s = "abcde";
+  std::cout << Reverse(s) << std::endl;
 }
 
 namespace {
@@ -78,7 +86,8 @@ static void Increment(const Comparator* cmp, std::string* key) {
 namespace {
 struct STLLessThan {
   const Comparator* cmp;
-
+  // 默认构造函数，比较器用 BytewiseComparator
+  // 有参构造函数，传入比较器函数
   STLLessThan() : cmp(BytewiseComparator()) {}
   STLLessThan(const Comparator* c) : cmp(c) {}
   bool operator()(const std::string& a, const std::string& b) const {
@@ -115,12 +124,15 @@ class StringSource : public RandomAccessFile {
 
   uint64_t Size() const { return contents_.size(); }
 
+  // 将数据读取到 scratch 指向的内存中， result 指向 scratch
+  // 的地址，只是进行类型转换
   Status Read(uint64_t offset, size_t n, Slice* result,
               char* scratch) const override {
     if (offset >= contents_.size()) {
       return Status::InvalidArgument("invalid Read offset");
     }
-    if (offset + n > contents_.size()) {
+    if (offset + n >
+        contents_.size()) {  // 如果读取的长度超过文件长度，则只读取到文件结尾
       n = contents_.size() - offset;
     }
     std::memcpy(scratch, &contents_[offset], n);
@@ -152,10 +164,10 @@ class Constructor {
               KVMap* kvmap) {
     *kvmap = data_;
     keys->clear();
-    for (const auto& kvp : data_) {
+    for (const auto& kvp : data_) {  // 将key 添加到keys
       keys->push_back(kvp.first);
     }
-    data_.clear();
+    data_.clear();  // data 清空后 kvmap 还有数据,因为 *kvmap = data_ 是值拷贝
     Status s = FinishImpl(options, *kvmap);
     ASSERT_TRUE(s.ok()) << s.ToString();
   }
@@ -187,6 +199,7 @@ class BlockConstructor : public Constructor {
       builder.Add(kvp.first, kvp.second);
     }
     // Open the block
+    // data 指 encode 后的 k、v 和重启点数组信息
     data_ = builder.Finish().ToString();
     BlockContents contents;
     contents.data = data_;
@@ -224,12 +237,14 @@ class TableConstructor : public Constructor {
     Status s = builder.Finish();
     EXPECT_LEVELDB_OK(s);
 
+    // 比较内容大小和索引偏移
     EXPECT_EQ(sink.contents().size(), builder.FileSize());
 
     // Open the table
     source_ = new StringSource(sink.contents());
     Options table_options;
     table_options.comparator = options.comparator;
+    // 检查刚写入的table 数据是否合法
     return Table::Open(table_options, source_, sink.contents().size(), &table_);
   }
 
@@ -352,7 +367,7 @@ class DBConstructor : public Constructor {
 
  private:
   void NewDB() {
-    std::string name = testing::TempDir() + "table_testdb";
+    std::string name = testing::TempDir() + "leveldb/table_testdb";
 
     Options options;
     options.comparator = comparator_;
@@ -412,7 +427,10 @@ class Harness : public testing::Test {
     constructor_ = nullptr;
     options_ = Options();
 
-    options_.block_restart_interval = args.restart_interval;
+    // 自己添加，不使用压缩测试
+    options_.compression = kNoCompression;
+
+    options_.block_restart_interval = args.restart_interval;  // 设置重启间隔
     // Use shorter block size for tests to exercise block boundary
     // conditions more.
     options_.block_size = 256;
@@ -445,38 +463,76 @@ class Harness : public testing::Test {
     std::vector<std::string> keys;
     KVMap data;
     constructor_->Finish(options_, &keys, &data);
-
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "constructor finished");
     TestForwardScan(keys, data);
     TestBackwardScan(keys, data);
     TestRandomAccess(rnd, keys, data);
   }
 
+  void TestForward() {
+    std::vector<std::string> keys;
+    KVMap data;
+    constructor_->Finish(options_, &keys, &data);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "constructor finished");
+    TestForwardScan(keys, data);
+  }
+
+  void TestBackward() {
+    std::vector<std::string> keys;
+    KVMap data;
+    constructor_->Finish(options_, &keys, &data);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "constructor finished");
+    TestBackwardScan(keys, data);
+  }
+
+  void TestRandom(Random* rnd) {
+    std::vector<std::string> keys;
+    KVMap data;
+    constructor_->Finish(options_, &keys, &data);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "constructor finished");
+    TestRandomAccess(rnd, keys, data);
+  }
+
   void TestForwardScan(const std::vector<std::string>& keys,
                        const KVMap& data) {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "start, create iter");
     Iterator* iter = constructor_->NewIterator();
-    ASSERT_TRUE(!iter->Valid());
+    ASSERT_TRUE(!iter->Valid());  // 迭代器无效才继续执行
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToFirst begin");
+
     iter->SeekToFirst();
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToFirst end. iter begin");
     for (KVMap::const_iterator model_iter = data.begin();
          model_iter != data.end(); ++model_iter) {
       ASSERT_EQ(ToString(data, model_iter), ToString(iter));
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "iter->next");
       iter->Next();
     }
     ASSERT_TRUE(!iter->Valid());
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete iter begin");
     delete iter;
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete iter end");
   }
 
   void TestBackwardScan(const std::vector<std::string>& keys,
                         const KVMap& data) {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "start, create iter");
     Iterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToLast begin");
+
     iter->SeekToLast();
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToLast end. iter begin");
     for (KVMap::const_reverse_iterator model_iter = data.rbegin();
          model_iter != data.rend(); ++model_iter) {
       ASSERT_EQ(ToString(data, model_iter), ToString(iter));
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "iter->prev");
       iter->Prev();
     }
     ASSERT_TRUE(!iter->Valid());
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete iter begin");
     delete iter;
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete iter end");
   }
 
   void TestRandomAccess(Random* rnd, const std::vector<std::string>& keys,
@@ -608,6 +664,68 @@ class Harness : public testing::Test {
   Constructor* constructor_;
 };
 
+class ModelTestIter : public Iterator {
+ public:
+  ModelTestIter(const KVMap* map, bool owned)
+      : map_(map), owned_(owned), iter_(map_->end()) {}
+  ~ModelTestIter() override {
+    if (owned_) delete map_;
+  }
+  bool Valid() const override { return iter_ != map_->end(); }
+  void SeekToFirst() override { iter_ = map_->begin(); }
+  void SeekToLast() override {
+    if (map_->empty()) {
+      iter_ = map_->end();
+    } else {
+      // rbegin() 返回一个逆向迭代器
+      iter_ = map_->find(map_->rbegin()->first);
+    }
+  }
+  void Seek(const Slice& k) override {
+    // 用于查找第一个键值不小于给定值的元素。这个方法返回一个迭代器，指向该元素。
+    // 如果所有键都小于给定值，则返回 map 的 end 迭代器。
+    iter_ = map_->lower_bound(k.ToString());
+  }
+  void Next() override { ++iter_; }
+  void Prev() override { --iter_; }
+  Slice key() const override { return iter_->first; }
+  Slice value() const override { return iter_->second; }
+  Status status() const override { return Status::OK(); }
+
+ private:
+  const KVMap* const map_;
+  const bool owned_;            // Do we own map_
+  KVMap::const_iterator iter_;  // 只允许读取容器中的元素，不能修改
+};
+
+TEST(TestIter, ModelTestIter) {
+  KVMap data;
+  data.insert({"a", "1"});
+  data.insert({"b", "2"});
+  data.insert({"c", "3"});
+  data.insert({"d", "4"});
+  data.insert({"e", "5"});
+  ModelTestIter testIter(&data, false);
+
+  testIter.Seek("b");
+  // 获取key 要虚函数调用
+  std::cout << testIter.key().data() << ": " << testIter.value().ToString()
+            << std::endl;
+  testIter.Next();
+  std::cout << testIter.key().data() << ": " << testIter.value().ToString()
+            << std::endl;
+
+  IteratorWrapper iteratorWrapper(&testIter);
+  // key 已经缓存，每次取key 不需要经历虚函数调用，但取 value
+  // 每次还是需要虚函数调用
+  std::cout << iteratorWrapper.key().ToString() << ": "
+            << iteratorWrapper.value().ToString() << std::endl;
+  iteratorWrapper.Next();
+  std::cout << iteratorWrapper.key().ToString() << ": "
+            << iteratorWrapper.value().ToString() << std::endl;
+  std::cout << "valid: " << iteratorWrapper.Valid() << std::endl;
+}
+
 // Test empty table/block.
 TEST_F(Harness, Empty) {
   for (int i = 0; i < kNumTestArgs; i++) {
@@ -657,6 +775,69 @@ TEST_F(Harness, SimpleSingle) {
   }
 }
 
+TEST_F(Harness, RestartTableTest) {
+  TestArgs args = {TABLE_TEST, false, 2};
+  Init(args);
+  Random rnd(test::RandomSeed() + 3);
+  Add("abc", "v1");
+  Add("abcd", "v2");
+  Add("abcde", "v3");
+  Add("abcdef", "v4");
+  Add("abcdefg", "v5");
+  Test(&rnd);
+}
+
+TEST_F(Harness, DBTest) {
+  TestArgs args = {DB_TEST, false, 2};
+  Init(args);
+  Random rnd(test::RandomSeed() + 3);
+  Add("abc", "v1");
+  Add("abcd", "v2");
+  Add("abcde", "v3");
+  Add("abcdef", "v4");
+  Add("abcdefg", "v5");
+  Test(&rnd);
+}
+
+TEST_F(Harness, SelfArgsTest) {
+  for (int i = 0; i < kNumTestArgs; i++) {
+    std::cout << "i: " << i << std::endl;
+    Init(kTestArgList[i]);
+    Random rnd(test::RandomSeed() + 3);
+    Add("abc", "v1");
+    Add("abcd", "v2");
+    Add("abcde", "v3");
+    Add("abcdef", "v4");
+    Add("abcdefg", "v5");
+    Test(&rnd);
+  }
+}
+
+TEST_F(Harness, ForwardScan) {
+  Init(kTestArgList[6]);
+  Add("abc", "v");
+  Add("abcd", "v");
+  Add("ac", "v2");
+  TestForward();
+}
+
+TEST_F(Harness, BackwardScan) {
+  Init(kTestArgList[0]);
+  Add("abc", "v");
+  Add("abcd", "v");
+  Add("ac", "v2");
+  TestBackward();
+}
+
+TEST_F(Harness, RandomScan) {
+  Init(kTestArgList[0]);
+  Random rnd(test::RandomSeed() + 3);
+  Add("abc", "v");
+  Add("abcd", "v");
+  Add("ac", "v2");
+  TestRandom(&rnd);
+}
+
 TEST_F(Harness, SimpleMulti) {
   for (int i = 0; i < kNumTestArgs; i++) {
     Init(kTestArgList[i]);
@@ -673,6 +854,25 @@ TEST_F(Harness, SimpleSpecialKey) {
     Init(kTestArgList[i]);
     Random rnd(test::RandomSeed() + 4);
     Add("\xff\xff", "v3");
+    Test(&rnd);
+  }
+}
+
+TEST_F(Harness, SelfRandomized) {
+  int i = 0;
+  Init(kTestArgList[i]);
+  Random rnd(test::RandomSeed() + 5);
+  for (int num_entries = 0; num_entries < 2000;
+       num_entries += (num_entries < 50 ? 1 : 200)) {
+    if ((num_entries % 10) == 0) {
+      std::fprintf(stderr, "case %d of %d: num_entries = %d\n", (i + 1),
+                   int(kNumTestArgs), num_entries);
+    }
+    for (int e = 0; e < num_entries; e++) {
+      std::string v;
+      Add(test::RandomKey(&rnd, rnd.Skewed(4)),
+          test::RandomString(&rnd, rnd.Skewed(5), &v).ToString());
+    }
     Test(&rnd);
   }
 }
@@ -716,6 +916,8 @@ TEST_F(Harness, RandomizedLongDB) {
     char name[100];
     std::snprintf(name, sizeof(name), "leveldb.num-files-at-level%d", level);
     ASSERT_TRUE(db()->GetProperty(name, &value));
+    std::cout << "name: " << name << std::endl;
+    std::cout << "value: " << value << std::endl;
     files += atoi(value.c_str());
   }
   ASSERT_GT(files, 0);

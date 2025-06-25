@@ -31,7 +31,7 @@ TEST(ArenaTest, Simple) {
       s = 1;
     }
     char* r;
-    if (rnd.OneIn(10)) {
+    if (rnd.OneIn(10)) {  // 10分之1的概率返回 true
       r = arena.AllocateAligned(s);
     } else {
       r = arena.Allocate(s);
@@ -39,9 +39,13 @@ TEST(ArenaTest, Simple) {
 
     for (size_t b = 0; b < s; b++) {
       // Fill the "i"th allocation with a known bit pattern
+      // 向刚分配的内存中写数据
       r[b] = i % 256;
     }
     bytes += s;
+    // bytes 总的分配字节数
+    // s 当次分配的字节数
+    // r 当次分配的地址
     allocated.push_back(std::make_pair(s, r));
     ASSERT_GE(arena.MemoryUsage(), bytes);
     if (i > N / 10) {
@@ -56,6 +60,7 @@ TEST(ArenaTest, Simple) {
       ASSERT_EQ(int(p[b]) & 0xff, i % 256);
     }
   }
-}
 
 }  // namespace leveldb
+
+}

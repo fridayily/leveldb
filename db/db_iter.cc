@@ -48,10 +48,10 @@ class DBIter : public Iterator {
   DBIter(DBImpl* db, const Comparator* cmp, Iterator* iter, SequenceNumber s,
          uint32_t seed)
       : db_(db),
-        user_comparator_(cmp),
-        iter_(iter),
-        sequence_(s),
-        direction_(kForward),
+        user_comparator_(cmp), // user_key 比较器
+        iter_(iter), // 迭代器
+        sequence_(s), // 版本号
+        direction_(kForward), // 迭代方向
         valid_(false),
         rnd_(seed),
         bytes_until_read_sampling_(RandomCompactionPeriod()) {}
@@ -91,10 +91,20 @@ class DBIter : public Iterator {
   inline void SaveKey(const Slice& k, std::string* dst) {
     dst->assign(k.data(), k.size());
   }
-
+  // std::capacity 当前字符串对象可容纳的最大字符数，而不进行重新分配
+  // 当 saved_value_ 达到指定的阈值后，用swap 清空，而非 clear
   inline void ClearSavedValue() {
     if (saved_value_.capacity() > 1048576) {
       std::string empty;
+      //  使用 swap() 而不是直接调用 clear() 方法是为了避免在 saved_value_
+      //  容量特别大时造成不必要的内存管理开销，通过交换操作能更高效地释放原有数据占用的空间。
+
+      // clear 会将字符串长度设为0，并不一定立即释放已分配的内存空间，它通常保持当前容量不变，以便后序追加操作时能够
+      // 重用这块内存，从而避免频繁申请和释放内存带来的开销
+      // empty 本身没有分配内存，交换后 saved_value_ 的内存空间被释放
+      // 交换操作执行的时原子性的状态变更，相比于 clear() 可能触发的内存收缩操作，性能更优
+
+      // clear 尽管现有的实现在恒定时间内运行，但与字符串的大小呈线性关系
       swap(empty, saved_value_);
     } else {
       saved_value_.clear();
@@ -118,17 +128,22 @@ class DBIter : public Iterator {
   Random rnd_;
   size_t bytes_until_read_sampling_;
 };
-
+// 将迭代器中的key(internal_key)解析到 ParsedInternalKey 中
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
-  Slice k = iter_->key();
+  Slice k = iter_->key(); // 获取 internal_key
 
-  size_t bytes_read = k.size() + iter_->value().size();
+  size_t bytes_read = k.size() + iter_->value().size(); // 获取key(internal_key) +value长度
+  // 如果剩余能扣除的字节数小于需要减去的字节数，则重新设置 bytes_until_read_sampling_
+  // 添加一个随机值，下次这个随机值快要扣除完的时候调用 RecordReadSample
+  // 进入 while 循环可能会触发 Compaction
+  //  如果生成的 bytes_until_read_sampling_ 较小，重新增加RandomCompactionPeriod()
+  // 这里可能多次 Compaction
   while (bytes_until_read_sampling_ < bytes_read) {
     bytes_until_read_sampling_ += RandomCompactionPeriod();
-    db_->RecordReadSample(k);
+    db_->RecordReadSample(k); // 可能触发 Compaction
   }
   assert(bytes_until_read_sampling_ >= bytes_read);
-  bytes_until_read_sampling_ -= bytes_read;
+  bytes_until_read_sampling_ -= bytes_read; // 每次迭代器读取，都会从 bytes_until_read_sampling_中减去 bytes_read
 
   if (!ParseInternalKey(k, ikey)) {
     status_ = Status::Corruption("corrupted internal key in DBIter");
@@ -179,17 +194,29 @@ void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
   assert(iter_->Valid());
   assert(direction_ == kForward);
   do {
-    ParsedInternalKey ikey;
+    ParsedInternalKey ikey; //ikey.sequence 是存入key 的时候的sequence
+    // iter_ 中的 key 是 internal_key，这里查找第一个key 存在，且key的版本号小于等于 sequence_的迭代器，找到返回true
+    // sequence_ 是数据库读取是的版本号，如果查找的key 的版本号小于等于 sequence_，返回true，可以继续判断
     if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
       switch (ikey.type) {
         case kTypeDeletion:
           // Arrange to skip all upcoming entries for this key since
           // they are hidden by this deletion.
-          SaveKey(ikey.user_key, skip);
+          SaveKey(ikey.user_key, skip); // 如果查找的key是被删除的，保存到skip中
           skipping = true;
           break;
         case kTypeValue:
-          if (skipping &&
+          if (skipping && // 这里的迭代器是skip_list,key 都是有序的
+              // put(key1) put(key1) del(key1)
+              // 结果形如 key1_3_(kTypeDeletion)  key1_2_(kTypeValue)  key1_1_(kTypeValue)
+              // 第一次读取出 key1_3,是标记为删除的，skipping = true
+              // 下一次取出 key1_2,与*skip 相比为true,继续循环查找
+              // 再一次取出 key1_1,与*skip 相比为true,继续循环查找
+
+              // put(key1) put(key2) del(key1) put(key1)
+              // key0_6(kTypeValue) key0_5(kTypeDeletion)  key1_4(kTypeValue) key1_3(kTypeDeletion)  key1_1(kTypeValue) key2_2(kTypeValue)
+
+              // 什么情况下有< ??
               user_comparator_->Compare(ikey.user_key, *skip) <= 0) {
             // Entry hidden
           } else {
@@ -201,6 +228,7 @@ void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
       }
     }
     iter_->Next();
+    // 只要迭代器有效就一直循环查找
   } while (iter_->Valid());
   saved_key_.clear();
   valid_ = false;
@@ -288,12 +316,12 @@ void DBIter::Seek(const Slice& target) {
     valid_ = false;
   }
 }
-
+// 找到第一个能读取的key, 因为设置了版本号，迭代器可能无效
 void DBIter::SeekToFirst() {
   direction_ = kForward;
   ClearSavedValue();
   iter_->SeekToFirst();
-  if (iter_->Valid()) {
+  if (iter_->Valid()) { // 迭代器指向结点不为空即有效
     FindNextUserEntry(false, &saved_key_ /* temporary storage */);
   } else {
     valid_ = false;

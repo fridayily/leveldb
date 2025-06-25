@@ -23,7 +23,7 @@ class WritableFile;
 void AppendNumberTo(std::string* str, uint64_t num);
 
 // Append a human-readable printout of "value" to *str.
-// Escapes any non-printable characters found in "value".
+// Escapes any non-printable characters found in "value". 转译 value 中的不可见字符到 *str 中
 void AppendEscapedStringTo(std::string* str, const Slice& value);
 
 // Return a human-readable printout of "num"

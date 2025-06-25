@@ -16,7 +16,7 @@ namespace leveldb {
 // A utility routine: write "data" to the named file and Sync() it.
 Status WriteStringToFileSync(Env* env, const Slice& data,
                              const std::string& fname);
-
+// 制作文件名
 static std::string MakeFileName(const std::string& dbname, uint64_t number,
                                 const char* suffix) {
   char buf[100];
@@ -29,7 +29,7 @@ std::string LogFileName(const std::string& dbname, uint64_t number) {
   assert(number > 0);
   return MakeFileName(dbname, number, "log");
 }
-
+// 创建leveldb 数据文件
 std::string TableFileName(const std::string& dbname, uint64_t number) {
   assert(number > 0);
   return MakeFileName(dbname, number, "ldb");
@@ -39,7 +39,7 @@ std::string SSTTableFileName(const std::string& dbname, uint64_t number) {
   assert(number > 0);
   return MakeFileName(dbname, number, "sst");
 }
-
+// 创建以 MANIFEST 文件名
 std::string DescriptorFileName(const std::string& dbname, uint64_t number) {
   assert(number > 0);
   char buf[100];
@@ -105,7 +105,7 @@ bool ParseFileName(const std::string& filename, uint64_t* number,
     if (!ConsumeDecimalNumber(&rest, &num)) {
       return false;
     }
-    Slice suffix = rest;
+    Slice suffix = rest; // 剩下的是后缀名
     if (suffix == Slice(".log")) {
       *type = kLogFile;
     } else if (suffix == Slice(".sst") || suffix == Slice(".ldb")) {
@@ -119,18 +119,27 @@ bool ParseFileName(const std::string& filename, uint64_t* number,
   }
   return true;
 }
-
+// 先创建 .dbtmp 的临时文件，写入当前的 MANIFEST,再改名为 CURRENT
 Status SetCurrentFile(Env* env, const std::string& dbname,
                       uint64_t descriptor_number) {
   // Remove leading "dbname/" and add newline to manifest file name
+  // 根据传入的编号获取指定的 MANIFEST 文件名
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"get manifest filename {}",manifest);
   Slice contents = manifest;
   assert(contents.starts_with(dbname + "/"));
   contents.remove_prefix(dbname.size() + 1);
+  // 创建一个临时文件 dbname/000001.dbtmp
   std::string tmp = TempFileName(dbname, descriptor_number);
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"create tmp file {}",tmp);
+  // 去掉 dbname 后的新建的文件名 MANIFEST 写到临时文件中
+  // 文件不存在会新建文件
   Status s = WriteStringToFileSync(env, contents.ToString() + "\n", tmp);
   if (s.ok()) {
-    s = env->RenameFile(tmp, CurrentFileName(dbname));
+    // 将刚新建的临时文件改名
+    // 例如 000001.dbtmp ->CURRENT 里面存的数据为 MANIFEST-000001,即 MANIFEST 文件名
+    // MANIFEST 存的 log 文件,即 edit 相关信息,即每一层 table 的信息
+    s = env->RenameFile(tmp, CurrentFileName(dbname)); // 000001.dbtmp 改名为 CURRENT
   }
   if (!s.ok()) {
     env->RemoveFile(tmp);

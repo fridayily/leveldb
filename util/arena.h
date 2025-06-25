@@ -51,13 +51,13 @@ class Arena {
   //               accessed without any locking. Is this OK?
   std::atomic<size_t> memory_usage_;
 };
-
+// Arena 初始化时没有分配空间，要使用的时候才分配
 inline char* Arena::Allocate(size_t bytes) {
   // The semantics of what to return are a bit messy if we allow
   // 0-byte allocations, so we disallow them here (we don't need
   // them for our internal use).
   assert(bytes > 0);
-  if (bytes <= alloc_bytes_remaining_) {
+  if (bytes <= alloc_bytes_remaining_) { // alloc_bytes_remaining_ 初始化是 0,
     char* result = alloc_ptr_;
     alloc_ptr_ += bytes;
     alloc_bytes_remaining_ -= bytes;

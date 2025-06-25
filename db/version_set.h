@@ -30,6 +30,8 @@ namespace log {
 class Writer;
 }
 
+// 前向声明可以避免在头文件中包含不必要的头文件，从而减少编译依赖。
+//    例如，如果你只需要一个类的指针或引用，而不需要该类的完整定义，就可以使用前向声明
 class Compaction;
 class Iterator;
 class MemTable;
@@ -45,6 +47,7 @@ class WritableFile;
 int FindFile(const InternalKeyComparator& icmp,
              const std::vector<FileMetaData*>& files, const Slice& key);
 
+ // 如果files里面的key与[*smallest,*largest].有重叠，则返回 ture
 // Returns true iff some file in "files" overlaps the user key range
 // [*smallest,*largest].
 // smallest==nullptr represents a key smaller than all keys in the DB.
@@ -57,11 +60,14 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp,
                            const Slice* smallest_user_key,
                            const Slice* largest_user_key);
 
+// 一个 version 包含所有层的文件
+// 有修改后会生成一个新的 version
+
 class Version {
  public:
   struct GetStats {
-    FileMetaData* seek_file;
-    int seek_file_level;
+    FileMetaData* seek_file; // 要查找的文件
+    int seek_file_level; // 要查找的文件层级
   };
 
   // Append to *iters a sequence of iterators that will
@@ -84,6 +90,8 @@ class Version {
   // Samples are taken approximately once every config::kReadBytesPeriod
   // bytes.  Returns true if a new compaction may need to be triggered.
   // REQUIRES: lock is held
+  // 记录一个指定的 internal key的样本
+  // 如果可能需要触发新的压缩，则返回true
   bool RecordReadSample(Slice key);
 
   // Reference count management (so Versions do not disappear out from
@@ -140,7 +148,7 @@ class Version {
   // Call func(arg, level, f) for every file that overlaps user_key in
   // order from newest to oldest.  If an invocation of func returns
   // false, makes no more calls.
-  //
+  // 对每个与user_key重叠的文件按从最新到最旧的顺序调用func(arg, level, f)
   // REQUIRES: user portion of internal_key == user_key.
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
@@ -153,7 +161,7 @@ class Version {
   // List of files per level
   std::vector<FileMetaData*> files_[config::kNumLevels];
 
-  // Next file to compact based on seek stats.
+  // Next file to compact based on seek stats. 需要 compact 的文件
   FileMetaData* file_to_compact_;
   int file_to_compact_level_;
 
@@ -172,7 +180,7 @@ class VersionSet {
   VersionSet& operator=(const VersionSet&) = delete;
 
   ~VersionSet();
-
+  //
   // Apply *edit to the current version to form a new descriptor that
   // is both saved to persistent state and installed as the new
   // current version.  Will release *mu while actually writing to the file.
@@ -295,7 +303,13 @@ class VersionSet {
 
   Env* const env_;
   const std::string dbname_;
+  // 指向 const Options 对象的常量指针
+  // 不能修改 options_ 指针指向的 Options 对象的内容
+  // 不能改变 options_ 指针本身的值
   const Options* const options_;
+  // 指向 TableCache 对象的常量指针
+  // 以修改 table_cache_ 指针指向的 TableCache 对象的内容
+  // 不能改变 table_cache_ 指针本身的值
   TableCache* const table_cache_;
   const InternalKeyComparator icmp_;
   uint64_t next_file_number_;
@@ -308,13 +322,16 @@ class VersionSet {
   WritableFile* descriptor_file_;
   log::Writer* descriptor_log_;
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
-  Version* current_;        // == dummy_versions_.prev_
+  // 指向 dummy_versions 的前一个
+  Version* current_;
 
   // Per-level key at which the next compaction at that level should start.
   // Either an empty string, or a valid InternalKey.
+  // 存储每一层级的下次压缩操作应开始的键值
   std::string compact_pointer_[config::kNumLevels];
 };
 
+// Compaction 封装了要 compaction 的信息
 // A Compaction encapsulates information about a compaction.
 class Compaction {
  public:
@@ -364,9 +381,9 @@ class Compaction {
   Compaction(const Options* options, int level);
 
   int level_;
-  uint64_t max_output_file_size_;
-  Version* input_version_;
-  VersionEdit edit_;
+  uint64_t max_output_file_size_;  // 生成 sstable 的最大 size
+  Version* input_version_; // compact 时的 version
+  VersionEdit edit_; // 记录 compact 过程的操作
 
   // Each compaction reads inputs from "level_" and "level_+1"
   std::vector<FileMetaData*> inputs_[2];  // The two sets of inputs

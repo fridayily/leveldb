@@ -36,6 +36,9 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
   }
 
   // Pick up remaining bytes
+  // 在 switch 语句中，当你想要一个 case 标签执行完后继续执行下一个 case 而不中断时，
+  // 在最后一个执行语句后面加上 FALLTHROUGH_INTENDED; 宏调用，
+  // 可以清晰地表明这种控制流程是预期行为，而非忘记写 break 语句的错误。
   switch (limit - data) {
     case 3:
       h += static_cast<uint8_t>(data[2]) << 16;

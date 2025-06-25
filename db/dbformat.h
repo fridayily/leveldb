@@ -33,6 +33,10 @@ static const int kL0_SlowdownWritesTrigger = 8;
 // Maximum number of level-0 files.  We stop writes at this point.
 static const int kL0_StopWritesTrigger = 12;
 
+// 在不产生重叠的情况下，新压缩的memtable被推入的最大级别
+// 我们尝试推到级别2，以避免相对昂贵的级别0=>1压缩，并避免一些昂贵的清单文件操作。
+// 我们不会将数据推送到最大级别，因为如果相同的键空间被反复覆盖，
+// 这可能会导致大量的磁盘空间浪费。
 // Maximum level to which a new compacted memtable is pushed if it
 // does not create overlap.  We try to push to level 2 to avoid the
 // relatively expensive level 0=>1 compactions and to avoid some
@@ -71,7 +75,7 @@ struct ParsedInternalKey {
   SequenceNumber sequence;
   ValueType type;
 
-  ParsedInternalKey() {}  // Intentionally left uninitialized (for speed)
+  ParsedInternalKey() {}  // Intentionally left uninitialized (for speed)  故意不初始化
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) {}
   std::string DebugString() const;
@@ -94,7 +98,7 @@ bool ParseInternalKey(const Slice& internal_key, ParsedInternalKey* result);
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
   assert(internal_key.size() >= 8);
-  return Slice(internal_key.data(), internal_key.size() - 8);
+  return Slice(internal_key.data(), internal_key.size() - 8); // sequence num + value type 占8字节
 }
 
 // A comparator for internal keys that uses a specified comparator for
@@ -131,6 +135,8 @@ class InternalFilterPolicy : public FilterPolicy {
 // Modules in this directory should keep internal keys wrapped inside
 // the following class instead of plain strings so that we do not
 // incorrectly use string comparisons instead of an InternalKeyComparator.
+// 如果类中没有自定义的拷贝构造函数、拷贝赋值运算符、析构函数、移动构造函数或移动赋值运算符，
+// 编译器会自动生成默认的移动构造函数和移动赋值运算符。
 class InternalKey {
  private:
   std::string rep_;
@@ -142,12 +148,12 @@ class InternalKey {
   }
 
   bool DecodeFrom(const Slice& s) {
-    rep_.assign(s.data(), s.size());
+    rep_.assign(s.data(), s.size()); // 修改rep_
     return !rep_.empty();
   }
 
   Slice Encode() const {
-    assert(!rep_.empty());
+    assert(!rep_.empty()); // rep_ 是一个 InternalKey，长度为 key+8
     return rep_;
   }
 
@@ -167,17 +173,17 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
                                           const InternalKey& b) const {
   return Compare(a.Encode(), b.Encode());
 }
-
+// 将 internal_key 解析成 user_key, sequence, type
 inline bool ParseInternalKey(const Slice& internal_key,
                              ParsedInternalKey* result) {
-  const size_t n = internal_key.size();
+  const size_t n = internal_key.size(); // userKey + 8 (sequence number+ type)
   if (n < 8) return false;
-  uint64_t num = DecodeFixed64(internal_key.data() + n - 8);
-  uint8_t c = num & 0xff;
-  result->sequence = num >> 8;
+  uint64_t num = DecodeFixed64(internal_key.data() + n - 8); // 移动指针,取出(sequence number+ type)
+  uint8_t c = num & 0xff; // 取出type
+  result->sequence = num >> 8; // 取出sequence
   result->type = static_cast<ValueType>(c);
-  result->user_key = Slice(internal_key.data(), n - 8);
-  return (c <= static_cast<uint8_t>(kTypeValue));
+  result->user_key = Slice(internal_key.data(), n - 8); // 取出user_key
+  return (c <= static_cast<uint8_t>(kTypeValue)); // 判断 kType 有效性
 }
 
 // A helper class useful for DBImpl::Get()
@@ -193,7 +199,7 @@ class LookupKey {
   ~LookupKey();
 
   // Return a key suitable for lookup in a MemTable.
-  Slice memtable_key() const { return Slice(start_, end_ - start_); }
+  Slice memtable_key() const { return Slice(start_, end_ - start_); } // internal_key length + internal key
 
   // Return an internal key (suitable for passing to an internal iterator)
   Slice internal_key() const { return Slice(kstart_, end_ - kstart_); }

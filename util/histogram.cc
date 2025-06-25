@@ -182,6 +182,13 @@ void Histogram::Clear() {
 void Histogram::Add(double value) {
   // Linear search is fast enough for our usage in db_bench
   int b = 0;
+  /*
+   * 如 value = 15
+   * k[11]= 14
+   * k[12]= 16
+   * 即遍历 12 次
+   * 属于 [14,16),这个区间里面的值 +1
+   * */
   while (b < kNumBuckets - 1 && kBucketLimit[b] <= value) {
     b++;
   }

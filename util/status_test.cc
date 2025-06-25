@@ -4,10 +4,12 @@
 
 #include "leveldb/status.h"
 
+#include <iostream>
 #include <utility>
 
-#include "gtest/gtest.h"
 #include "leveldb/slice.h"
+
+#include "gtest/gtest.h"
 
 namespace leveldb {
 
@@ -29,11 +31,24 @@ TEST(Status, MoveConstructor) {
 
   {
     Status self_moved = Status::IOError("custom IOError status message");
-
+    std::cout << "---------" << std::endl;
     // Needed to bypass compiler warning about explicit move-assignment.
     Status& self_moved_reference = self_moved;
     self_moved_reference = std::move(self_moved);
   }
+
+
+}
+
+
+TEST(Status,MyTest){
+  {
+    Status s1 = Status::Corruption("Corruption happen","2023");
+    Status s2 = s1;
+    std::cout << s2.ToString() << std::endl;
+  }
+
+
 }
 
 }  // namespace leveldb

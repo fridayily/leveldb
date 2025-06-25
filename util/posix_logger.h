@@ -30,12 +30,14 @@ class PosixLogger final : public Logger {
 
   ~PosixLogger() override { std::fclose(fp_); }
 
+  // 将数据格式化后写入文件，fp_在PosixLogger对象初始化时设置
   void Logv(const char* format, std::va_list arguments) override {
     // Record the time as close to the Logv() call as possible.
     struct ::timeval now_timeval;
     ::gettimeofday(&now_timeval, nullptr);
     const std::time_t now_seconds = now_timeval.tv_sec;
     struct std::tm now_components;
+    // 将一个时间字符串或数字时间转换为本地时间的结构体
     ::localtime_r(&now_seconds, &now_components);
 
     // Record the thread ID.
@@ -49,6 +51,7 @@ class PosixLogger final : public Logger {
 
     // We first attempt to print into a stack-allocated buffer. If this attempt
     // fails, we make a second attempt with a dynamically allocated buffer.
+    // 最开始尝试将要写入的数据格式化到一个栈分配的buffer中，如果失败，则尝试将数据格式化到一个动态分配的buffer中
     constexpr const int kStackBufferSize = 512;
     char stack_buffer[kStackBufferSize];
     static_assert(sizeof(stack_buffer) == static_cast<size_t>(kStackBufferSize),
@@ -60,7 +63,7 @@ class PosixLogger final : public Logger {
           (iteration == 0) ? kStackBufferSize : dynamic_buffer_size;
       char* const buffer =
           (iteration == 0) ? stack_buffer : new char[dynamic_buffer_size];
-
+      // 获取buffer 和 buffer_size,用snprintf 写入 + 年月日时分秒微秒 + 线程id
       // Print the header into the buffer.
       int buffer_offset = std::snprintf(
           buffer, buffer_size, "%04d/%02d/%02d-%02d:%02d:%02d.%06d %s ",
@@ -79,7 +82,13 @@ class PosixLogger final : public Logger {
 
       // Print the message into the buffer.
       std::va_list arguments_copy;
+      // va_copy 函数的作用是将 src 变量的值复制到 dst 变量中。使用 va_copy 函数可以实现对可变参数列表的多次使用，
+      // 避免了多次调用 va_start 和 va_end 函数的麻烦。
       va_copy(arguments_copy, arguments);
+      // int snprintf(char *str, size_t size, const char *format, ...);
+      // str 是目标缓冲区的指针，size 是缓冲区的大小，format 是格式化字符串，... 表示可变参数列表
+      // int vsnprintf(char *str, size_t size, const char *format, va_list args);
+      // args 是一个 va_list 类型的参数，通过 va_start 宏初始化，表示可变参数列表的起始位置。
       buffer_offset +=
           std::vsnprintf(buffer + buffer_offset, buffer_size - buffer_offset,
                          format, arguments_copy);
@@ -111,7 +120,12 @@ class PosixLogger final : public Logger {
       }
 
       assert(buffer_offset <= buffer_size);
+      // size_t fwrite(const void *ptr, size_t size, size_t count, FILE *stream);
+      // ptr 指向写入的内存地址，size 要写入的每一个元素的大小，count 是写入的元素数量，stream 是指向文件指针的指针。
       std::fwrite(buffer, 1, buffer_offset, fp_);
+      // 将输出流的缓冲区中数据立即写到其目标位置，而不是等待缓冲区满或则程序退出时才写入
+      // 作用：在程序退出之前确保所有输出都已写入文件或终端
+      //  在输出流被修改之后刷新流，以确保新的修改也立即写入目标位置
       std::fflush(fp_);
 
       if (iteration != 0) {

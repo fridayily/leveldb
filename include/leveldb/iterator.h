@@ -74,7 +74,7 @@ class LEVELDB_EXPORT Iterator {
 
   // Clients are allowed to register function/arg1/arg2 triples that
   // will be invoked when this iterator is destroyed.
-  //
+  // 注册清除函数
   // Note that unlike all of the preceding methods, this method is
   // not abstract and therefore clients should not override it.
   using CleanupFunction = void (*)(void* arg1, void* arg2);

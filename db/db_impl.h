@@ -26,6 +26,8 @@ class Version;
 class VersionEdit;
 class VersionSet;
 
+// DBImpl 是 DB 的实现类，继承自 DB，实现 DB 接口中的方法。
+// 获得 DB 类的公有和保护成员
 class DBImpl : public DB {
  public:
   DBImpl(const Options& options, const std::string& dbname);
@@ -50,11 +52,11 @@ class DBImpl : public DB {
   void CompactRange(const Slice* begin, const Slice* end) override;
 
   // Extra methods (for testing) that are not in the public DB interface
-
+  // compact 指定的 level 中与 [*begin,*end] 有重叠的 file
   // Compact any files in the named level that overlap [*begin,*end]
   void TEST_CompactRange(int level, const Slice* begin, const Slice* end);
 
-  // Force current memtable contents to be compacted.
+  // Force current memtable contents to be compacted. 强制当前 memtable 执行 compacted
   Status TEST_CompactMemTable();
 
   // Return an internal iterator over the current state of the database.
@@ -69,9 +71,11 @@ class DBImpl : public DB {
   // Record a sample of bytes read at the specified internal key.
   // Samples are taken approximately once every config::kReadBytesPeriod
   // bytes.
+  // 大概每 config::kReadBytesPeriod 字节采集一次样本
   void RecordReadSample(Slice key);
 
  private:
+  // 父类设置为子类的友元，这样父类可以访问子类的私有和保护成员
   friend class DB;
   struct CompactionState;
   struct Writer;
@@ -84,7 +88,7 @@ class DBImpl : public DB {
     const InternalKey* end;    // null means end of key range
     InternalKey tmp_storage;   // Used to keep track of compaction progress
   };
-
+  // 每个 level 压实信息的统计
   // Per level compaction stats.  stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
   struct CompactionStats {
@@ -129,7 +133,7 @@ class DBImpl : public DB {
 
   Status WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
-
+ // force 即使有空间也执行 compact
   Status MakeRoomForWrite(bool force /* compact even if there is room? */)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   WriteBatch* BuildBatchGroup(Writer** last_writer)
@@ -155,6 +159,7 @@ class DBImpl : public DB {
     return internal_comparator_.user_comparator();
   }
 
+  // 一旦数据库启动后以下变量不会改变,所以用 const 修饰
   // Constant after construction
   Env* const env_;
   const InternalKeyComparator internal_comparator_;
@@ -183,13 +188,15 @@ class DBImpl : public DB {
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.
-  std::deque<Writer*> writers_ GUARDED_BY(mutex_);
+  std::deque<Writer*> writers_ GUARDED_BY(mutex_); // 双端队列
   WriteBatch* tmp_batch_ GUARDED_BY(mutex_);
-
+  // 如果列表初始化中没有明确初始化
+  // 类类型的成员变量会调用默认构造函数进行初始化
   SnapshotList snapshots_ GUARDED_BY(mutex_);
 
   // Set of table files to protect from deletion because they are
   // part of ongoing compactions.
+  // 要防止删除的一组表文件，因为它们是正在进行的压缩的一部分。
   std::set<uint64_t> pending_outputs_ GUARDED_BY(mutex_);
 
   // Has a background compaction been scheduled or is running?

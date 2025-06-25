@@ -46,6 +46,7 @@ class Random {
   }
   // Returns a uniformly distributed value in the range [0..n-1]
   // REQUIRES: n > 0
+  // 在均匀分布中，无论是在连续还是离散的情况下，随机变量每个可能结果出现的可能性都是均等的
   uint32_t Uniform(int n) { return Next() % n; }
 
   // Randomly returns true ~"1/n" of the time, and false otherwise.

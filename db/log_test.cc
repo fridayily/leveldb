@@ -295,7 +295,8 @@ TEST_F(LogTest, SNPRINTF) {
   int n = std::snprintf(buf, sizeof(buf), "%s.", "hello");
   std::cout << "n= " << n << " buf: " << buf << std::endl;
 
-  /* 返回的长度是格式化后的长度,长度可能会大于 buf 的大小, 超出部分会截断 */
+  /* 返回的长度是格式化后的长度,长度可能会大于 buf 的大小,
+   * 超出部分会截断 如果输出被截断，则返回本应写入的字符总数*/
   int m = std::snprintf(buf, sizeof(buf), "%s.", "hello world C++");
   std::cout << "m= " << m << " buf: " << buf << std::endl;
 

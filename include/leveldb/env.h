@@ -82,6 +82,7 @@ class LEVELDB_EXPORT Env {
   // not exist.
   //
   // The returned file may be concurrently accessed by multiple threads.
+  // 这里 RandomAccessFile** 使用双指针, 是需要通过参数返回新创建的对象
   virtual Status NewRandomAccessFile(const std::string& fname,
                                      RandomAccessFile** result) = 0;
 
@@ -256,6 +257,8 @@ class LEVELDB_EXPORT RandomAccessFile {
   RandomAccessFile(const RandomAccessFile&) = delete;
   RandomAccessFile& operator=(const RandomAccessFile&) = delete;
 
+  // 如果基类析构函数不是虚函数, 当通过基类指针删除派生类对象时，
+  // 只会调用基类的析构函数，而不会调用派生类的析构函数
   virtual ~RandomAccessFile();
 
   // Read up to "n" bytes from the file starting at "offset".
@@ -332,6 +335,10 @@ LEVELDB_EXPORT Status ReadFileToString(Env* env, const std::string& fname,
 // An implementation of Env that forwards all calls to another Env.
 // May be useful to clients who wish to override just part of the
 // functionality of another Env.
+// 委托模式
+//   通过构造函数接受一个目标 Env 对象, 所有方法调用都会转发给这个目标对象
+// 可扩展性
+//   客户端可以继承此类并仅覆盖部分功能
 class LEVELDB_EXPORT EnvWrapper : public Env {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t.

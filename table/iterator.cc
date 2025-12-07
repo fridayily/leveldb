@@ -24,6 +24,7 @@ Iterator::~Iterator() {
 }
 // 注册清空函数
 void Iterator::RegisterCleanup(CleanupFunction func, void* arg1, void* arg2) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "RegisterCleanup");
   assert(func != nullptr);
   CleanupNode* node;
   if (cleanup_head_.IsEmpty()) {

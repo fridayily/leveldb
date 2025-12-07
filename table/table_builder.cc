@@ -48,7 +48,12 @@ struct TableBuilder::Rep {
   int64_t num_entries;
   bool closed;  // Either Finish() or Abandon() has been called.
   FilterBlockBuilder* filter_block;
-  // 写完一个data_block后，不会立即写index_block的索引条目，而是等到下一个data_block写入时才写
+  // 写完一个 data_block 后，不会立即写 index_block 的索引条目，
+  // 而是等到下一个 ata_block 写入时才写
+
+  // 数据块边界键："the quick brown fox" 和 "the who"
+  // 传统方法：使用完整键 "the quick brown fox" 作为索引键
+  // 优化方法：使用较短的分隔键 "the r" 作为索引键
   // We do not emit the index entry for a block until we have seen the
   // first key for the next data block.  This allows us to use shorter
   // keys in the index block.  For example, consider a block boundary
@@ -242,7 +247,8 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
       // 修改 offset
       // 上面数据写到缓冲区后，更新偏移量
       // rep 的 offset 中记录的是所有 block 的偏移量的和
-      // 所以 index_block 中不同 entry 的 offset 是递增的,而不是每个从 0 开始
+      // 所以 index_block 中不同 entry 的 offset 是递增的,即相对文件开头的偏移量
+      // 而不是每个从 0 开始
       r->offset += block_contents.size() + kBlockTrailerSize;
     }
   }

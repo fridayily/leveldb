@@ -15,11 +15,28 @@ namespace leveldb {
 namespace log {
 
 static void InitTypeCrc(uint32_t* type_crc) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "");
 
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc[i] = crc32c::Value(&t, 1);
+  }
+}
+
+static const char* RecordTypeToString(RecordType t) {
+  switch (t) {
+    case kZeroType:
+      return "kZeroType";
+    case kFullType:
+      return "kFullType";
+    case kFirstType:
+      return "kFirstType";
+    case kMiddleType:
+      return "kMiddleType";
+    case kLastType:
+      return "kLastType";
+    default:
+      return "Unknown";
   }
 }
 
@@ -35,15 +52,18 @@ Writer::Writer(WritableFile* dest, uint64_t dest_length)
 Writer::~Writer() = default;
 // 将要写的数据添加到log 中，32K一个block
 Status Writer::AddRecord(const Slice& slice) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"");
   const char* ptr = slice.data();
-  size_t left = slice.size();
+  size_t left = slice.size();  // 数据剩余未写入的字节数
 
   // Fragment the record if necessary and emit it.  Note that if slice
   // is empty, we still want to iterate once to emit a single
   // zero-length record
   Status s;
   bool begin = true;
-  do {  // 如果上一次刚好写完一个block,还有数据要写，这里 leftover=0
+  do {
+    // leftover 当前块剩余可用空间
+    // 如果上一次刚好写完一个block, 还有数据要写，这里 leftover=0
     const int leftover =
         kBlockSize -
         block_offset_;  // kBlockSize 默认大小 32K, block_offset_
@@ -66,16 +86,14 @@ Status Writer::AddRecord(const Slice& slice) {
            0);  // block_offset_ 可能是初始化的0,可能是上一行重置
 
     const size_t avail = kBlockSize - block_offset_ - kHeaderSize;  // 剩余可用
-    const size_t fragment_length =
-        (left < avail)
-            ? left
-            : avail;  // left
-                      // 是数据长度，如果要写的长度大于可用的空间，拆分片段写
+    // left 剩余未写入的数据总量, avail: 当前 block 中可用于数据写入的空间大小
+    // fragment_length 本次可以写入的片段的大小
+    const size_t fragment_length = (left < avail) ? left : avail;
+
     // 如果 left > avail, 将 left 拆分成 fragment
     RecordType type;
-    const bool end =
-        (left ==
-         fragment_length);  // 如果还有剩余的要写,说明不是end,否则设end 为 true
+    // 剩余写入==本次可以写入,则 end = true
+    const bool end = (left == fragment_length);
     if (begin && end) {
       type = kFullType;
     } else if (begin) {
@@ -86,12 +104,13 @@ Status Writer::AddRecord(const Slice& slice) {
       type = kMiddleType;
     }
 
-    s = EmitPhysicalRecord(
-        type, ptr, fragment_length);  // 每次写入data的长度或者 剩余可写空间长度
-    ptr += fragment_length;           // ptr 可能是个很长的字符串,每次最多只处理
-                                      // kBlockSize 字符
-    left -= fragment_length;  // left 可能大于 kBlockSize,表示剩余要写长度
-    begin = false;            // 如果 kBlockSize 不够写,则置false
+    // 每次写入data的长度或者 剩余可写空间长度
+    s = EmitPhysicalRecord(type, ptr, fragment_length);
+    // ptr 可能是个很长的字符串,每次最多只处理 kBlockSize 字符
+    ptr += fragment_length;
+    left -= fragment_length;
+    // 已经写完一个片段, begin 设为 false
+    begin = false;
   } while (s.ok() && left > 0);  // left >0 说明还有未写的数据
   return s;
 }
@@ -100,8 +119,8 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr,
                                   size_t length) {
   //    spdlog::info("EmitPhysicalRecord {}", int(t));
   //  std::cout << "EmitPhysicalRecord " << t << std::endl;
-//  SpdLogger::Log()->debug("EmitPhysicalRecord {}", int(t));
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),int(t));
+  //  SpdLogger::Log()->debug("EmitPhysicalRecord {}", int(t));
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"emit record type {}", RecordTypeToString(t));
   assert(length <= 0xffff);  // Must fit in two bytes // 小于 64K
   assert(block_offset_ + kHeaderSize + length <=
          kBlockSize);  // 是否有足够的空间写
@@ -119,8 +138,8 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr,
   EncodeFixed32(buf, crc);  // 将crc 存入buf的前面4字节
 
   // Write the header and the payload
-  // 写入空字符串时也是要写KHeaderSize在写0长度数据
-  // 将kHeader 写到 dest_.buf_ 中，缓冲区写满后写文件
+  // 写入空字符串时也要写 KHeaderSize, 然后写0长度数据
+  // 将 kHeader 写到 dest_.buf_ 中，缓冲区写满后写文件
   Status s = dest_->Append(Slice(buf, kHeaderSize));
   if (s.ok()) {
     s = dest_->Append(Slice(ptr, length));  // 写Data到dest_.buf_

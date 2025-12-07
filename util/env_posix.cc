@@ -45,6 +45,7 @@ int g_open_read_only_file_limit = -1;
 
 // Up to 1000 mmap regions for 64-bit binaries; none for 32-bit.
 // 常量表达式，在编译期确定其值
+// 在 64 位系统上（指针大小 ≥ 8 字节）：允许最多 1000 个 mmap 区域
 constexpr const int kDefaultMmapLimit = (sizeof(void*) >= 8) ? 1000 : 0;
 
 // Can be set using EnvPosixTestHelper::SetReadOnlyMMapLimit().
@@ -60,6 +61,10 @@ constexpr const int kOpenBaseFlags = 0;
 // 小于这个值的会写入缓存中，大于这个值的直接写到文件
 constexpr const size_t kWritableFileBufferSize = 65536;  // 64*1024
 
+// strerror 函数将数字错误码转换为描述性字符串
+// errno = 2  -> "No such file or directory"
+// errno = 13 -> "Permission denied"
+// 都在 errno.h 中定义
 Status PosixError(const std::string& context, int error_number) {
   if (error_number == ENOENT) {
     return Status::NotFound(context, std::strerror(error_number));
@@ -93,10 +98,11 @@ class Limiter {
     int old_acquires_allowed =
         acquires_allowed_.fetch_sub(1, std::memory_order_relaxed);
 
-    if (old_acquires_allowed > 0) return true;  // 如果还有可用资源，返回 true
+    // 如果还有可用资源，返回 true
+    if (old_acquires_allowed > 0) return true;
 
-    int pre_increment_acquires_allowed =  // 说明没有可用资源，先加1个可用资源，但是会返回
-                                          // false
+    // 如果没有可用资源（减1前的值≤0），则将资源数加1恢复，并返回 false
+    int pre_increment_acquires_allowed =
         acquires_allowed_.fetch_add(1, std::memory_order_relaxed);
 
     // Silence compiler warnings about unused arguments when NDEBUG is defined.
@@ -185,10 +191,10 @@ class PosixRandomAccessFile final : public RandomAccessFile {
   // The new instance takes ownership of |fd|. |fd_limiter| must outlive this
   // instance, and will be used to determine if .
   PosixRandomAccessFile(std::string filename, int fd, Limiter* fd_limiter)
-      : has_permanent_fd_(fd_limiter->Acquire()),  // 能打开的文件描述符减1
+      : has_permanent_fd_(fd_limiter->Acquire()),  // 是否有足够配额
         fd_(has_permanent_fd_
                 ? fd
-                : -1),  // 有可用文件描述符资源，则赋值为fd,否则 -1
+                : -1),  // 如有可用文件描述符资源，则赋值为fd,否则 -1
         fd_limiter_(fd_limiter),
         filename_(std::move(filename)) {
     if (!has_permanent_fd_) {
@@ -205,9 +211,12 @@ class PosixRandomAccessFile final : public RandomAccessFile {
     }
   }
 
+  // Open-on-Read 模式, 是一种延迟文件打开策略，文件不是在创建对象时立即打开，
+  // 而是在第一次实际读取时才打开。这有助于在资源受限的环境中节省文件描述符
   Status Read(uint64_t offset, size_t n, Slice* result,
               char* scratch) const override {
     int fd = fd_;
+    // 如果没有永久文件描述符则临时打开文件(函数结尾关闭了文件)
     if (!has_permanent_fd_) {
       fd = ::open(filename_.c_str(), O_RDONLY | kOpenBaseFlags);
       if (fd < 0) {
@@ -218,9 +227,11 @@ class PosixRandomAccessFile final : public RandomAccessFile {
     assert(fd != -1);
 
     Status status;
-    // fd 打开的文件描述符，buf 用于存储数据的缓冲区，count 要读取的字节数
-    // offset 要读取的位置，以偏移量表示 read 函数是从文件当前位置读取数据 pread
-    // 从指定位置读取数据
+    //  pread(int d, void *buf, size_t nbyte, off_t offset);
+    // fd 打开的文件描述符，buf 用于存储数据的缓冲区，nbyte 要读取的字节数
+    // offset 要读取的位置，以偏移量表示
+    // read 函数是从文件当前位置读取数据
+    // pread 从指定位置读取数据
     ssize_t read_size = ::pread(fd, scratch, n, static_cast<off_t>(offset));
     *result = Slice(scratch, (read_size < 0) ? 0 : read_size);
     if (read_size < 0) {
@@ -236,6 +247,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
   }
 
  private:
+  // 用于指示该随机访问文件对象是否拥有一个永久的文件描述符
   const bool has_permanent_fd_;  // If false, the file is opened on every read.
   const int fd_;                 // -1 if has_permanent_fd_ is false.
   Limiter* const fd_limiter_;
@@ -323,7 +335,7 @@ class PosixWritableFile final : public WritableFile {
     }
 
     // Can't fit in buffer, so need to do at least one write.
-    // 写的数据较多，缓存区写满，还有数据要写如，先将缓存区的数据写到文件
+    // 写的数据较多，缓存区写满，还有数据要写入，先将缓存区的数据写到文件
     // 写完后会将偏移量置为 0
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write buffer data to file");
     Status status = FlushBuffer();  // 将在缓冲区的数据写到文件中
@@ -332,7 +344,7 @@ class PosixWritableFile final : public WritableFile {
     }
 
     // Small writes go to buffer, large writes are written directly.
-    // 待写的数据小于缓冲区长度，则写到缓冲区中，否则直接写到文件中
+    // 剩余待写的数据小于缓冲区长度，则写到缓冲区中，否则直接写到文件中
     if (write_size < kWritableFileBufferSize) {
       // 写到缓冲区中
       SPDLOG_LOGGER_INFO(
@@ -345,7 +357,8 @@ class PosixWritableFile final : public WritableFile {
     SPDLOG_LOGGER_INFO(
         SpdLogger::Log(),
         "remain bytes larger then kWritableFileBufferSize, write to file");
-    return WriteUnbuffered(write_data, write_size);  // 写到文件中
+    // 直接写入到文件描述符
+    return WriteUnbuffered(write_data, write_size);
   }
 
   Status Close() override {
@@ -366,7 +379,7 @@ class PosixWritableFile final : public WritableFile {
 
   Status Sync() override {
     // Ensure new files referred to by the manifest are in the filesystem.
-    //
+    // 确保 manifest 中引用的新文件已经写入到文件系统中。
     // This needs to happen before the manifest file is flushed to disk, to
     // avoid crashing in a state where the manifest refers to files that are not
     // yet on disk.
@@ -391,12 +404,14 @@ class PosixWritableFile final : public WritableFile {
     return status;
   }
 
+  // WriteUnbuffered 用于直接将数据写入文件描述符
   Status WriteUnbuffered(const char* data, size_t size) {
     while (size > 0) {
       ssize_t write_result = ::write(fd_, data, size);
       if (write_result < 0) {
-        if (errno == EINTR) {  // 遇到中断返回-1,errno=EINTR
-          continue;            // Retry
+        if (errno == EINTR) {
+          // write 系统调用出错时返回 -1 ,如果原因是中断 errno=EINTR, 重新尝试读取
+          continue;
         }
         return PosixError(filename_, errno);
       }
@@ -406,6 +421,8 @@ class PosixWritableFile final : public WritableFile {
     return Status::OK();
   }
 
+  // SyncDirIfManifest 的主要作用是在处理 MANIFEST 文件时，
+  // 确保其所在的目录已经同步到文件系统中，以防止在系统崩溃时出现不一致的状态
   Status SyncDirIfManifest() {
     Status status;
     if (!is_manifest_) {
@@ -429,19 +446,24 @@ class PosixWritableFile final : public WritableFile {
   // The path argument is only used to populate the description string in the
   // returned Status if an error occurs.
   static Status SyncFd(int fd, const std::string& fd_path) {
+    // 如果系统支持 FULLFSYNC, 则使用 fcntl 来同步数据到磁盘, 成功直接返回
+    // 如果不支持或者失败, 使用 fdatasync 或者 fsync
 #if HAVE_FULLFSYNC
     // On macOS and iOS, fsync() doesn't guarantee durability past power
     // failures. fcntl(F_FULLFSYNC) is required for that purpose. Some
     // filesystems don't support fcntl(F_FULLFSYNC), and require a fallback to
     // fsync().
     // 用于同步文件系统的数据，它会等待所有数据都被写到磁盘，确保文件系统完整性
-    // ，F_FULLFSYNC会将数据写入到磁盘的每个块，并确保每个块都写入完成。
+    // F_FULLFSYNC 会将数据写入到磁盘的每个块，并确保每个块都写入完成。
     // 而fsync只是将数据写入到操作系统的缓存中，由操作系统决定何时将数据写入到磁盘
     if (::fcntl(fd, F_FULLFSYNC) == 0) {
       return Status::OK();
     }
 #endif  // HAVE_FULLFSYNC
 
+    // fdatasync 确保文件数据内容被写入到持久存储设备
+    // fsync 同步数据+元数据(修改时间、访问时间)
+    // 这里优先考虑使用 fdatasync, 否则回退到使用 fsync
 #if HAVE_FDATASYNC
     bool sync_success = ::fdatasync(fd) == 0;
 #else
@@ -481,9 +503,8 @@ class PosixWritableFile final : public WritableFile {
     }
     // The filename component should not contain a path separator. If it does,
     // the splitting was done incorrectly.
-    assert(filename.find('/', separator_pos + 1) ==
-           std::string::
-               npos);  // 从 指定索引位置开始查找，之后是文件名，应该不存在'/'
+    // 从指定索引位置开始查找，之后是文件名，不应该存在 '/'
+    assert(filename.find('/', separator_pos + 1) ==std::string::npos);
 
     return Slice(filename.data() + separator_pos + 1,     // 文件名的开始位置
                  filename.length() - separator_pos - 1);  // 文件名的长度
@@ -507,12 +528,16 @@ class PosixWritableFile final : public WritableFile {
 // 传入非0值上锁
 int LockOrUnlock(int fd, bool lock) {
   errno = 0;
-  struct ::flock file_lock_info;  // linux 文件锁
+  // linux 文件锁
+  struct ::flock file_lock_info;
   std::memset(&file_lock_info, 0, sizeof(file_lock_info));
-  file_lock_info.l_type = (lock ? F_WRLCK : F_UNLCK);  // l_type 指定锁的类型，
+  // l_type 指定锁的类型
+  file_lock_info.l_type = (lock ? F_WRLCK : F_UNLCK);
   // SEEK_SET 用于指定文件指针的移动方式，具体来说，它表示从文件的开头开始计算偏移量
-  file_lock_info.l_whence = SEEK_SET;  // l_whence,l_start,l_len 共同设置锁定区域
-  file_lock_info.l_start = 0; // 起始偏移量
+  // l_whence,l_start,l_len 共同设置锁定区域
+  file_lock_info.l_whence = SEEK_SET;
+  // 起始偏移量
+  file_lock_info.l_start = 0;
   // l_len 锁定区域的长度,0 表示到文件末尾
   file_lock_info.l_len = 0;  // Lock/unlock entire file.
   // F_SETLK 是 fcntl 系统调用中的一个命令，用于设置文件锁。它允许进程请求或释放文件上的锁，
@@ -527,13 +552,13 @@ int LockOrUnlock(int fd, bool lock) {
 class PosixFileLock : public FileLock {
  public:
   PosixFileLock(int fd, std::string filename)
-      : fd_(fd), filename_(std::move(filename)) {}  // 移动指针指向
+      : fd_(fd), filename_(std::move(filename)) {}
 
   int fd() const { return fd_; }
   const std::string& filename() const { return filename_; }
 
  private:
-  // 量成员变量必须在初始化列表中显式初始化
+  // 成员变量必须在初始化列表中显式初始化
   const int fd_;
   const std::string filename_;
 };
@@ -544,7 +569,7 @@ class PosixFileLock : public FileLock {
 // We maintain a separate set instead of relying on fcntl(F_SETLK) because
 // fcntl(F_SETLK) does not provide any protection against multiple uses from the
 // same process.
-//
+// fcntl(F_SETLK) 没有保护机制来避免同一进程的多次使用
 // Instances are thread-safe because all member data is guarded by a mutex.
 class PosixLockTable {
  public:
@@ -568,6 +593,9 @@ class PosixLockTable {
 class PosixEnv : public Env {
  public:
   PosixEnv();
+  // PosixEnv 被设计为单例模式，不应该被销毁
+  // 如果析构函数被调用, 是不符合预期的, 会向stderr 输出错误信息
+  // 并调用 std::abort() 强制终止程序
   ~PosixEnv() override {
     static const char msg[] =
         "PosixEnv singleton destroyed. Unsupported behavior!\n";
@@ -587,6 +615,13 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
+  // 这里有三种文件访问方式
+  //    如果 mmap 有可用资源,优先选择 PosixMmapReadableFile
+  //    如果 mmap_limiter_ 耗尽
+  //        fd_limiter_ 大于 0 用 PosixRandomAccessFile 的永久文件描述符
+  //                文件在对象创建时打开,在对象生命周期保持打开,性能最佳,但消耗文件描述符
+  //        fd_limiter_ 耗尽, 用 PosixRandomAccessFile 的 open-on-read 模式,
+  //                使用时打开,读取完成后关闭, 每次读取有额外开销
   Status NewRandomAccessFile(const std::string& filename,
                              RandomAccessFile** result) override {
     *result = nullptr;
@@ -595,7 +630,8 @@ class PosixEnv : public Env {
       return PosixError(filename, errno);
     }
 
-    if (!mmap_limiter_.Acquire()) {  // 如果有可用资源
+    // 如果 mmap 没有有可用资源,则选择随机访问文件方式打开文件
+    if (!mmap_limiter_.Acquire()) {
       *result = new PosixRandomAccessFile(filename, fd, &fd_limiter_);
       return Status::OK();
     }
@@ -620,11 +656,13 @@ class PosixEnv : public Env {
     return status;
   }
   /* O_TRUNC 如果文件已经存在,则将其长度截断为0  O_CLOEXEC
-   * 避免文件描述符无意间泄露给fork创建的子进程
+   * O_CLOEXEC 避免文件描述符无意间泄露给 fork 创建的子进程
    * https://blog.csdn.net/l00102795/article/details/129978467
-   * 一般子进程会调用exec执行另一个程序,此时会用全新的程序替换子进程的正文,数据,堆栈,此时保存文件
-   * 描述符的变量也不存在了,导致无法关闭无用的文件描述符,所以fork子进程后在子进程中直接执行close
-   * 关掉无用的文件描述符,然后再执行exec
+   * 一般子进程会调用 exec 执行另一个程序, 此时会用全新的程序替换子进程的正文,数据,堆栈
+   * 如果没有这个标志, 子进程继承父进程的 fd, 子进程拥有该 fd 的能力
+   * 但一般不希望这种情况出现, 设置 O_CLOEXEC 后,会自动关闭带有该标志的文件描述符
+   * 这里的 open 调用本身不创建进程,是一种防御性编程的做法
+   *    当前进程将来通过 fork+exec 创建子进程时,文件描述符不会被新程序继承
    * */
   Status NewWritableFile(const std::string& filename,
                          WritableFile** result) override {
@@ -719,11 +757,14 @@ class PosixEnv : public Env {
       return PosixError(filename, errno);
     }
 
-    if (!locks_.Insert(filename)) {  // 要加锁的文件添加到locks_
+    // 要加锁的文件添加到 locks_
+    // 如果失败,说明文件被另外一个进程锁住
+    if (!locks_.Insert(filename)) {
       ::close(fd);
       return Status::IOError("lock " + filename, "already held by process");
     }
 
+    // 文件没有被占用, 加锁
     if (LockOrUnlock(fd, true) == -1) {  // true 加锁 false 解锁
       int lock_errno = errno;
       ::close(fd);
@@ -761,6 +802,8 @@ class PosixEnv : public Env {
       *result = env;
     } else {
       char buf[100];
+      // geteuid 获取有效用户id  effective user id
+      // 为不同用户创建独立的测试目录
       std::snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%d",
                     static_cast<int>(::geteuid()));
       *result = buf;
@@ -951,8 +994,8 @@ template <typename EnvType>
 class SingletonEnv {
  public:
   SingletonEnv() {
-#if !defined(NDEBUG)  // NDEBUG 是standard C
-                      // 中定义的宏,专门用过来控制assert()的行为,
+    // NDEBUG 用于控制调试信息的编译
+#if !defined(NDEBUG)
     env_initialized_.store(true, std::memory_order_relaxed);
 #endif  // !defined(NDEBUG)
     static_assert(
@@ -971,13 +1014,14 @@ class SingletonEnv {
 
   static void AssertEnvNotInitialized() {
 #if !defined(NDEBUG)
+    // 调试版本中检查环境是否已初始化
     assert(!env_initialized_.load(std::memory_order_relaxed));
 #endif  // !defined(NDEBUG)
   }
 
  private:
   typename std::aligned_storage<sizeof(EnvType),
-                                alignof(EnvType)>::type  // aligof 返回对齐要求
+                                alignof(EnvType)>::type  // alignof 返回对齐要求
       env_storage_;
 #if !defined(NDEBUG)
   static std::atomic<bool> env_initialized_;

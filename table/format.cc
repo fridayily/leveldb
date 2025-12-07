@@ -74,6 +74,7 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
   Slice contents;
   // 将数据读取到 buf 指向的内存中, contents 同样指向 buf 的地址，只是数据类型解释为 Slice
   // 指定block的偏移地址，要读取的大小，block 可能包含多个k,v
+  // offset 是相对于整个文件的偏移量, 之后存储 n 字节的 data, 1字节的压缩类型 4字节的 CRC
   Status s = file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
   if (!s.ok()) {
     delete[] buf;

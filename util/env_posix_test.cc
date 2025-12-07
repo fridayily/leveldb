@@ -187,6 +187,8 @@ TEST_F(EnvPosixTest, TestOpenOnRead) {
   ASSERT_LEVELDB_OK(env_->GetTestDirectory(&test_dir));
   std::string test_file = test_dir + "/open_on_read.txt";
 
+  // w 写入模式
+  // e O_CLOEXEC 标志
   FILE* f = std::fopen(test_file.c_str(), "we");
   ASSERT_TRUE(f != nullptr);
   const char kFileData[] = "abcdefghijklmnopqrstuvwxyz";
@@ -196,7 +198,7 @@ TEST_F(EnvPosixTest, TestOpenOnRead) {
   // Open test file some number above the sum of the two limits to force
   // open-on-read behavior of POSIX Env leveldb::RandomAccessFile.
   const int kNumFiles = kReadOnlyFileLimit + kMMapLimit + 5;
-  leveldb::RandomAccessFile* files[kNumFiles] = {0};
+  leveldb::RandomAccessFile* files[kNumFiles] = {nullptr};
   for (int i = 0; i < kNumFiles; i++) {
     ASSERT_LEVELDB_OK(env_->NewRandomAccessFile(test_file, &files[i]));
   }
@@ -204,6 +206,7 @@ TEST_F(EnvPosixTest, TestOpenOnRead) {
   Slice read_result;
   for (int i = 0; i < kNumFiles; i++) {
     ASSERT_LEVELDB_OK(files[i]->Read(i, 1, &read_result, &scratch));
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"i={} result {}",i,read_result[0]);
     ASSERT_EQ(kFileData[i], read_result[0]);
   }
   for (int i = 0; i < kNumFiles; i++) {

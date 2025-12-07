@@ -87,8 +87,8 @@ namespace {
 struct STLLessThan {
   const Comparator* cmp;
   // 默认构造函数，比较器用 BytewiseComparator
-  // 有参构造函数，传入比较器函数
   STLLessThan() : cmp(BytewiseComparator()) {}
+  // 有参构造函数，传入比较器函数
   STLLessThan(const Comparator* c) : cmp(c) {}
   bool operator()(const std::string& a, const std::string& b) const {
     return cmp->Compare(Slice(a), Slice(b)) < 0;
@@ -131,8 +131,9 @@ class StringSource : public RandomAccessFile {
     if (offset >= contents_.size()) {
       return Status::InvalidArgument("invalid Read offset");
     }
-    if (offset + n >
-        contents_.size()) {  // 如果读取的长度超过文件长度，则只读取到文件结尾
+    // 检查请求读取的数据是否会超出文件边界
+    // 如果读取范围超出文件末尾，则调整读取长度为从偏移量到文件末尾的剩余数据量
+    if (offset + n > contents_.size()) {
       n = contents_.size() - offset;
     }
     std::memcpy(scratch, &contents_[offset], n);
@@ -162,12 +163,14 @@ class Constructor {
   // and stores the key/value pairs in "*kvmap"
   void Finish(const Options& options, std::vector<std::string>* keys,
               KVMap* kvmap) {
+    // 完整的 map 复制操作
     *kvmap = data_;
     keys->clear();
     for (const auto& kvp : data_) {  // 将key 添加到keys
       keys->push_back(kvp.first);
     }
-    data_.clear();  // data 清空后 kvmap 还有数据,因为 *kvmap = data_ 是值拷贝
+    // data 清空后 kvmap 还有数据,因为 *kvmap = data_ 是值拷贝
+    data_.clear();
     Status s = FinishImpl(options, *kvmap);
     ASSERT_TRUE(s.ok()) << s.ToString();
   }
@@ -699,31 +702,36 @@ class ModelTestIter : public Iterator {
 };
 
 TEST(TestIter, ModelTestIter) {
-  KVMap data;
-  data.insert({"a", "1"});
-  data.insert({"b", "2"});
-  data.insert({"c", "3"});
-  data.insert({"d", "4"});
-  data.insert({"e", "5"});
-  ModelTestIter testIter(&data, false);
+  KVMap* data = new KVMap();  // 堆上分配
+  data->insert({"a", "1"});
+  data->insert({"b", "2"});
+  data->insert({"c", "3"});
+  data->insert({"d", "4"});
+  data->insert({"e", "5"});
+  ModelTestIter* testIter = new ModelTestIter(data, true);  // owned_ = true
 
-  testIter.Seek("b");
+  testIter->Seek("b");
   // 获取key 要虚函数调用
-  std::cout << testIter.key().data() << ": " << testIter.value().ToString()
-            << std::endl;
-  testIter.Next();
-  std::cout << testIter.key().data() << ": " << testIter.value().ToString()
-            << std::endl;
+  ASSERT_EQ(testIter->key().ToString(), "b");
+  ASSERT_EQ(testIter->value().ToString(), "2");
 
-  IteratorWrapper iteratorWrapper(&testIter);
+  testIter->Next();
+  ASSERT_EQ(testIter->key().ToString(), "c");
+  ASSERT_EQ(testIter->value().ToString(), "3");
+
+  // testIter 有个 iter_ 变量, 是一个 const_iterator
+  // 然后用 testIter 实例化 IteratorWrapper
+
+  IteratorWrapper iteratorWrapper(testIter);
   // key 已经缓存，每次取key 不需要经历虚函数调用，但取 value
   // 每次还是需要虚函数调用
-  std::cout << iteratorWrapper.key().ToString() << ": "
-            << iteratorWrapper.value().ToString() << std::endl;
+  ASSERT_EQ(iteratorWrapper.key().ToString(), "c");
+  ASSERT_EQ(iteratorWrapper.value().ToString(), "3");
   iteratorWrapper.Next();
-  std::cout << iteratorWrapper.key().ToString() << ": "
-            << iteratorWrapper.value().ToString() << std::endl;
-  std::cout << "valid: " << iteratorWrapper.Valid() << std::endl;
+  ASSERT_EQ(iteratorWrapper.key().ToString(), "d");
+  ASSERT_EQ(iteratorWrapper.value().ToString(), "4");
+  ASSERT_TRUE(iteratorWrapper.Valid());
+  // iteratorWrapper 析构时会删除 testIter
 }
 
 // Test empty table/block.

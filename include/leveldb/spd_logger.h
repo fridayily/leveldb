@@ -11,7 +11,6 @@ class SpdLogger {
   static std::shared_ptr<spdlog::logger>& Log() {
     static std::shared_ptr<spdlog::logger> console_logger =
         spdlog::stdout_color_mt("console");
-//    spdlog::set_pattern("[source %s] [function %!] [line %#] %v");
     console_logger->set_pattern("%m-%d %H:%M:%S.%e %s:%# %! [%t] %v");
     console_logger->set_level(spdlog::level::info);
     return console_logger;

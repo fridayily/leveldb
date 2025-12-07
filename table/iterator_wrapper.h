@@ -19,7 +19,9 @@ class IteratorWrapper {
  public:
   IteratorWrapper() : iter_(nullptr), valid_(false) {}
   explicit IteratorWrapper(Iterator* iter) : iter_(nullptr) { Set(iter); }
-  ~IteratorWrapper() { delete iter_; }
+  ~IteratorWrapper() {
+    delete iter_;
+  }
   Iterator* iter() const { return iter_; }
 
   // Takes ownership of "iter" and will delete it when destroyed, or

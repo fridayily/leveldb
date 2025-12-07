@@ -53,7 +53,8 @@ Status Table::Open(const Options& options, RandomAccessFile* file,
   if (!s.ok()) return s;
 
   Footer footer;
-  s = footer.DecodeFrom(&footer_input); // 反序列化footer，写入index_block,meta_index 偏移信息
+  // 反序列化footer，写入index_block,meta_index 偏移信息
+  s = footer.DecodeFrom(&footer_input);
   if (!s.ok()) return s;
 
   // Read the index block

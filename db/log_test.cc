@@ -190,15 +190,18 @@ class LogTest : public testing::Test {
         return Status::Corruption("read error");
       }
 
-      if (contents_.size() < n) {  // contents 就是目前存的日志数据大小
+      // contents 就是目前存的日志数据大小
+      if (contents_.size() < n) {
+        // 如果数据容量大小小于 n,
         n = contents_.size();
-        returned_partial_ = true;  // 如果数据容量大小小于 n,
+        returned_partial_ = true;
       }
+      // 根据保存的数据创建 Slice,并保存到 result 中,这里是指针指向,没有发生拷贝
       *result =
-          Slice(contents_.data(), n);  // 根据保存的数据创建 Slice,并保存到
-                                       // result 中,这里是指针指向,没有发生拷贝
-      contents_.remove_prefix(n);  // 指针偏移,上面已经读取n 字节到result ,如果
-                                   // contents_ 长度为n,remove后contents_指向空
+          Slice(contents_.data(), n);
+      // 指针偏移,上面已经读取n 字节到result ,
+      // 如果 contents_ 长度为n,remove后contents_指向空
+      contents_.remove_prefix(n);
       return Status::OK();
     }
 

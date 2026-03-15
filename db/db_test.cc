@@ -558,6 +558,21 @@ TEST(RandTest, Uniform) {
   }
 }
 
+
+
+TEST_F(DBTest, MySelfSingle) {
+  long N = 200;
+  for (long i = 0; i < N; ++i) {
+    std::string key = std::string("key") + std::to_string(i);
+    std::string val = std::string(1000, 'v') + std::to_string(i);
+    Put(key, val);
+  }
+  std::string val;
+  val = Get("key0");
+  std::cout << "key0: val " << val << std::endl;
+}
+
+
 TEST_F(DBTest, MySelfBatch) {
   WriteBatch batch;
   int N = 10;
@@ -591,17 +606,7 @@ TEST_F(DBTest, MySelfBatch) {
   delete iterator;
 }
 
-TEST_F(DBTest, MySelfSingle) {
-  long N = 200;
-  for (long i = 0; i < N; ++i) {
-    std::string key = std::string("key") + std::to_string(i);
-    std::string val = std::string(1000, 'v') + std::to_string(i);
-    Put(key, val);
-  }
-  std::string val;
-  val = Get("key0");
-  std::cout << "key0: val " << val << std::endl;
-}
+
 
 TEST_F(DBTest, Empty) {
   do {
@@ -677,6 +682,7 @@ TEST_F(DBTest, DBTest_MySelfSingle_TestFilterReadWrite) {
 
   std::string s1 = Get("abcd");
 }
+
 
 TEST_F(DBTest, ReadWrite) {
   do {

@@ -109,9 +109,12 @@ class HandleTable {
   }
 
   LRUHandle* Insert(LRUHandle* h) {
-    // (1)list 为空 返回的是空
-    // (2) list 有数据，find时没有出现hash冲突，则返回最后一个结点的 next_hash
-    // 的地址 (3) list 有数据，中间有hash 冲突，则返回冲突的那个结点的地址
+    /*
+     *  (1) list 为空 返回的是空
+     *  (2) list 有数据，find 时没有出现 hash 冲突，则返回最后一个结点的
+     * next_hash 的地址 (3) list 有数据，中间有 hash
+     * 冲突，则返回冲突的那个结点的地址
+     */
     LRUHandle** ptr = FindPointer(h->key(), h->hash);
     LRUHandle* old = *ptr;  // ptr 为空说明没找到
     // 第一次插入时, old 指向空,h->next_hash 指向空
@@ -120,19 +123,24 @@ class HandleTable {
      * 下面2行就是最基础的向单向链表中添加一个结点的代码
      * 如果old 不为空,说明找到 hash
      * 相同的结点,那么用新结点的指向替换掉旧结点的指向
-     *  (1)如果链表为 A->B->C->D
-     * 现在要插入结点E，返回D->next_hash结点的地址，即NULL,先将E指向D->next_hash,然后D指向E，最后形成
-     * A->B->C->D->E (2)如果链表为 A->B->C->D 现在要插入结点C(h
-     * 新结点)，返回C(old hash冲突结点)结点地址，则h->next_hash 指向D,*ptr
-     * 替换为C(h),即新C替换为旧C 这个 h 就是刚存入 in_use_ 的结点
+     *  (1)如果链表为 A->B->C->D 现在要插入结点E
+     *     返回 D->next_hash结点的地址，即 NULL,先将E指向 D->next_hash,
+     *     然后 D 指向E，最后形成 A->B->C->D->E
+     *  (2)如果链表为 A->B->C->D 现在要插入结点C(h新结点)
+     *     返回C(old hash冲突结点)结点地址，则 h->next_hash 指向D,
+     *     *ptr 替换为C(h),即新C替换为旧C 这个 h 就是刚存入 in_use_ 的结点
      * */
     h->next_hash = (old == nullptr ? nullptr : old->next_hash);
-    *ptr = h;  // 将FindPointer 返回的地址指向向要插入的 LRUHandle 对象
-               // 即表里存入一个结点
-    if (old == nullptr) {      // old 为空,说明插入的key不在 hash
-                               // 表里,要新增key,就可能需要扩容
-      ++elems_;                // 加入一个 LRUHandle 元素后,元素数量加 1
-      if (elems_ > length_) {  // 当存入当元素大于 length_(默认4) 时扩容
+    // 将FindPointer 返回的地址指向向要插入的 LRUHandle 对象, 即表里存入一个结点
+    *ptr = h;
+    if (old == nullptr) {
+      /*
+       * old 为空,说明插入的key不在 hash 表里,要新增key,就可能需要扩容
+       * 加入一个 LRUHandle 元素后,元素数量加 1
+       * 当存入当元素大于 length_(默认4) 时扩容
+       */
+      ++elems_;
+      if (elems_ > length_) {
         // Since each cache entry is fairly large, we aim for a small
         // average linked list length (<= 1).
         Resize();
@@ -165,6 +173,27 @@ class HandleTable {
   /* 辅助代码 */
   void ListPrint() const {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "list begin");
+    for (int i = 0; i < length_; ++i) {
+      LRUHandle* cur = list_[i];
+      if (cur == nullptr) {
+        continue;
+      }
+      printf("hash %d ", i);
+      bool first = true;
+      while (cur != nullptr) {
+        if (!first) {
+          printf(" --next_hash-> ");
+        }
+        printf("%p", cur->value);
+        cur = cur->next_hash;
+        first = false;
+      }
+      printf("\n");
+    }
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "list end");
+  }
+
+  void LruPrint() const {
     for (int i = 0; i < length_; ++i) {
       LRUHandle* cur = list_[i];
       if (cur == nullptr) {
@@ -296,14 +325,19 @@ class LRUCache {
     LRUHandle* cur_in_use = in_use_.next;
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin ");
 
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "lru_");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "lru_ value");
+    bool first_lru = true;
     while (cur_lru != &lru_) {
-      printf("%p ", cur_lru->value);
+      if (!first_lru) {
+        printf("<-->");
+      }
+      printf(" %p ", cur_lru->value);
       cur_lru = cur_lru->next;
+      first_lru = false;
     }
     printf("\n");
 
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "in_user_");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "in_use_");
     while (cur_in_use != &in_use_) {
       printf("%p ", cur_in_use->value);
       cur_in_use = cur_in_use->next;
@@ -384,17 +418,24 @@ void LRUCache::Ref(LRUHandle* e) {
 void LRUCache::Unref(LRUHandle* e) {
   //  printf("LRUCache 函数被调用\n");
   assert(e->refs > 0);
-  e->refs--;           // 引用个数减1
-  if (e->refs == 0) {  // Deallocate.  引用为0时,释放分配的空间
+  // 引用个数减1
+  e->refs--;
+  if (e->refs == 0) {
+    // Deallocate.  引用为0时,释放分配的空间
     assert(!e->in_cache);
-    (*e->deleter)(e->key(), e->value);  // 调用删除函数
-    free(e);                            // 释放new 创建的结点
-  } else if (e->in_cache &&             // 结点要么在 in_cache
-                                        // 要么在lru_中，满足这个条件驱逐
-             e->refs == 1) {            // 插入的结点还在 cache 中且还有一个引用
+    // 调用删除函数
+    (*e->deleter)(e->key(), e->value);
+    // 释放new 创建的结点
+    free(e);
+  } else if (e->in_cache && e->refs == 1) {
+    /*
+     * 结点要么在 in_cache, 要么在 lru_ 中，满足这个条件驱逐
+     * 插入的结点还在 cache 中且还有一个引用
+     * e 节点不在使用, 移出 in_use, 将新结点添加到 lru
+     */
     // No longer in use; move to lru_ list.
-    LRU_Remove(e);         // 不在使用,移出 in_use
-    LRU_Append(&lru_, e);  // 将新结点添加到 lru
+    LRU_Remove(e);
+    LRU_Append(&lru_, e);
   }
 }
 // 在双向链表中删除 e 结点
@@ -454,13 +495,15 @@ Cache::Handle* LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
   if (capacity_ > 0) {
     e->refs++;           // for the cache's reference.
     e->in_cache = true;  // 有可用容量才放入 cache
-    //    printf("&in_use_ %x,refs %d\n", &in_use_, in_use_.refs);
-    /* 添加到in_use_ 链表*/
+    /*
+     * in_use_ 存的不是指针,是一个 LRUHandle 的实例,占72个字节
+     * 添加到 in_use_ 链表
+     */
     LRU_Append(&in_use_, e);
-    // in_use_存的不是指针,是一个类似int/long的实例,占72个字节
-    usage_ += charge;  // 修改shard_ 数组中一个 LRUCache 的使用数量
-    FinishErase(
-        table_.Insert(e));  // insert 返回不为空,说明有hash 冲突的键,要删除它
+    // 修改 shard_ 数组中一个 LRUCache 的使用数量
+    usage_ += charge;
+    // insert 返回不为空,说明有hash 冲突的键,要删除它
+    FinishErase(table_.Insert(e));
   } else {  // don't cache. (capacity_==0 is supported and turns off caching.)
     // next is read by key() in an assert, so it must be initialized
     e->next = nullptr;  // 没有容量不放入cache
@@ -518,9 +561,9 @@ static const int kNumShards = 1 << kNumShardBits;
 // 先初始化父类成员变量，再初始化父类构造函数，再初始化子类的成员函数，最后子类构造函数
 class ShardedLRUCache : public Cache {
  private:
-  LRUCache shard_
-      [kNumShards];  // 一个数组包含 16个 LRUCache
-                     // 对象,初始化ShardedLRUCache时，会创建16个LRUCache对象
+  // 一个数组包含 16个 LRUCache
+  // 对象,初始化ShardedLRUCache时，会创建16个LRUCache对象
+  LRUCache shard_[kNumShards];
   port::Mutex id_mutex_;
   uint64_t last_id_;
 
@@ -582,9 +625,9 @@ class ShardedLRUCache : public Cache {
   }
 
   /* 自己添加的辅助代码,打印第 s 个 shard 的 in_user lru*/
-  void StructPrint(int s) const override {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "the s {} th shard", s);
-    shard_[s].StructPrint();
+  void StructPrint(int shard_index) const override {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "the s {} th shard", shard_index);
+    shard_[shard_index].StructPrint();
     //    ListPrint();
   }
 };

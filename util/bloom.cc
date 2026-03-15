@@ -33,7 +33,8 @@ class BloomFilterPolicy : public FilterPolicy {
 
   void CreateFilter(const Slice* keys, int n, std::string* dst) const override { // keys 长度为n的数组
     // Compute bloom filter size (in both bits and bytes)
-    size_t bits = n * bits_per_key_; // bits_per_key_ 在初始化时确定,n 是keys 数组长度
+    // bits_per_key_ 在初始化时确定,n 是 keys 数组长度
+    size_t bits = n * bits_per_key_;
 
     // For small n, we can see a very high false positive rate.  Fix it
     // by enforcing a minimum bloom filter length.

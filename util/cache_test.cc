@@ -33,8 +33,8 @@ class CacheTest : public testing::Test {
     current_->deleted_values_.push_back(DecodeValue(v));
   }
 
-    static constexpr int kCacheSize = 1000;
-//  static constexpr int kCacheSize = 32;
+  static constexpr int kCacheSize = 1000;
+  //  static constexpr int kCacheSize = 32;
   std::vector<int> deleted_keys_;
   std::vector<int> deleted_values_;
   Cache* cache_;
@@ -115,13 +115,26 @@ void GetStructOffset() {
 
 TEST_F(CacheTest, GetStructOffset) { GetStructOffset(); }
 
-void GetTableIndex(int key) {
+/*
+ *
+ * 计算 key 的三个值
+ *     1. hash
+ *     2. 所在 shard
+ *     3. 当 list 长度为4 时，key 所在 list 的索引
+ *
+ * target_shard_index = -1 时， 打印全部key
+ * target_shard_index 在 [0,15] 时，打印对应的 shard 的 key
+ *
+ */
+void GetTableIndex(int key, int target_shard_index = -1) {
   std::string s = EncodeKey(key);
   uint32_t hash = Hash(s.data(), s.size(), 0);
   uint32_t shard_index = hash >> (32 - 4);
   uint32_t list_index = hash & (4 - 1);
-  std::cout << "key: " << key << " hash: " << hash << " " << shard_index << " "
-            << list_index << std::endl;
+  if (target_shard_index == -1 || shard_index == target_shard_index) {
+    std::cout << "key: " << key << " hash: " << hash << " " << shard_index
+              << " " << list_index << std::endl;
+  }
 }
 
 /*   -> shard_index  list_index
@@ -143,9 +156,11 @@ TEST_F(CacheTest, GetTableIndex) {
   //  GetTableIndex(67);
   //  GetTableIndex(76);
   for (int i = 0; i < 500; i++) {
-    GetTableIndex(i);
+    GetTableIndex(i,1);
   }
 }
+
+
 
 TEST_F(CacheTest, HashZero) {
   // key: 0 hash: 405037440 1 0
@@ -175,7 +190,6 @@ TEST_F(CacheTest, HashZero) {
   Insert(491, 11);
   StructPrint(1);
 
-
   std::cout << "插入数据完成" << std::endl;
 }
 
@@ -190,6 +204,33 @@ TEST_F(CacheTest, HashOne) {
   Insert(76, 7);   // 285616206 6
 
   std::cout << "插入数据完成" << std::endl;
+}
+
+
+TEST_F(CacheTest,Lru) {
+  Insert(0, 1);    // 405037440 0
+  Insert(9, 2);    // 405037440 0
+  Insert(49, 3);    // 405037440 0
+  StructPrint(1);
+  Insert(58, 4);    // 405037440 0
+  Insert(67, 5);    // 405037440 0
+  Insert(76, 6);    // 405037440 0
+  Insert(107, 7);    // 405037440 0
+  StructPrint(1);
+  Insert(116, 8);    // 405037440 0
+  StructPrint(1);
+
+  // Insert(125, 9);    // 405037440 0
+  // Insert(134, 10);    // 405037440 0
+  // Insert(174, 11);    // 405037440 0
+  // Insert(183, 12);    // 405037440 0
+  // StructPrint(1);
+  //
+  // Insert(192, 13);    // 405037440 0
+  // Insert(232, 14);    // 405037440 0
+  // Insert(241, 15);    // 405037440 0
+  // StructPrint(1);
+
 }
 
 TEST_F(CacheTest, HitAndMiss) {

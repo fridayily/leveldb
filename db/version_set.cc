@@ -575,7 +575,7 @@ int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
   }
   return level;
 }
-// 将第level 层文件中与[begin,end]有重合的 file 放入 inputs 中
+// 将第 level 层文件中与[begin,end]有重合的 file 放入 inputs 中
 // Store in "*inputs" all files in "level" that overlap [begin,end]
 void Version::GetOverlappingInputs(int level, const InternalKey* begin,
                                    const InternalKey* end,
@@ -1530,10 +1530,21 @@ bool FindLargestKey(const InternalKeyComparator& icmp,
   }
   return true;
 }
-// 设 files[1] b1=(l1,u1) files[2] b2=(l2,u2), user_key(l2) = user_key(u1), l2>
-// u1 ,即 l2的 sequence 小于 u1 ,u1 更新 Finds minimum file b2=(l2, u2) in level
-// file for which l2 > u1 and user_key(l2) = user_key(u1) 指定一个 largest_key
-// 遍历 level_files 中每一个 file 的 smallest_key
+
+
+/*
+ * 上界 upper bound  下届 lower bound
+ * user_key(u1) 表示 file[1] 最大的key
+ * user_key(l2) 表示 file[2] 最小的key
+ *
+ */
+// 设 files[1] b1=(l1,u1) files[2] b2=(l2,u2), user_key(l2) = user_key(u1),
+//  l2 > u1 ,即 l2的 sequence 小于 u1 ,u1 更新
+//
+// Finds minimum file b2=(l2, u2) in level file for which l2 > u1 and
+// user_key(l2) = user_key(u1)
+
+// 指定一个 largest_key 遍历 level_files 中每一个 file 的 smallest_key
 // 返回 smallest_key 中最小且比 largest_key 大的 元文件
 // 即 min(smallest_key0,smallest_key1,...,smallest_key_n) 且 min_smallest_key>
 // largest_key 且 user_key(min_smallest_key)=user_key(largest_key) 注意
@@ -1546,8 +1557,10 @@ FileMetaData* FindSmallestBoundaryFile(
   FileMetaData* smallest_boundary_file = nullptr;
   for (size_t i = 0; i < level_files.size(); ++i) {
     FileMetaData* f = level_files[i];
-    // 进入if的条件是 user_key 相等，其f->smallest 比 largest_key 更新，进入if
-    // 才能修改 smallest_boundary_file
+    /*
+     * 进入 if 的条件是 user_key 相等，其 f->smallest 比 largest_key 更新，
+     * 进入 if 才能修改 smallest_boundary_file
+     */
     if (icmp.Compare(f->smallest, largest_key) > 0 &&  // 比较的是 InternalKey
         user_cmp->Compare(
             f->smallest.user_key(),
@@ -1573,13 +1586,13 @@ FileMetaData* FindSmallestBoundaryFile(
 // file b2 (known as a boundary file) it adds it to |compaction_files| and then
 // searches again using this new upper bound.
 //
-// 假设有两个 block,b1的上界和b2的下界的user_key 相等
-// 如果对 b1 进行压缩（compaction），但不对 b2
-// 进行压缩，那么后续的查询操作可能会返回 错误的结果 由于 b2
-// 没有被压缩，查询操作可能会在第 i 层找到并返回 b2 中的记录，而不是 b1 中的记录
+// 假设有两个 block, block1 的上界和 block2 的下界的 user_key 相等
+// 如果对 block1 进行压缩（compaction），但不对 block2
+// 进行压缩，那么后续的查询操作可能会返回 错误的结果 由于 block2
+// 没有被压缩，查询操作可能会在第 i 层找到并返回 block2 中的记录，而不是 block1 中的记录
 // 查询操作通常会从最上层开始逐层向下搜索，直到找到匹配的记录
-// 如果 b1 被压缩而 b2 没有被压缩，那么 b1 中的数据可能已经被移动到更低的层，
-// 而 b2 仍然保留在较高的层
+// 如果 block1 被压缩而 block2 没有被压缩，那么 block1 中的数据可能已经被移动到更低的层，
+// 而 block2 仍然保留在较高的层
 // If there are two blocks, b1=(l1, u1) and b2=(l2, u2) and
 // user_key(u1) = user_key(l2), and if we compact b1 but not b2 then a
 // subsequent get operation will yield an incorrect result because it will

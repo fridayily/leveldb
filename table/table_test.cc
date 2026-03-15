@@ -821,8 +821,9 @@ TEST_F(Harness, SelfArgsTest) {
   }
 }
 
-TEST_F(Harness, ForwardScan) {
-  Init(kTestArgList[6]);
+TEST_F(Harness, BlockForwardScan) {
+  TestArgs args = {BLOCK_TEST, false, 16};
+  Init(args);
   Add("abc", "v");
   Add("abcd", "v");
   Add("ac", "v2");

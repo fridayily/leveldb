@@ -125,7 +125,7 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   // Update state 刚刚存储的key
   last_key_.resize(shared);  // last_key_ 取前面 shared 位
   last_key_.append(key.data() + shared,
-                   non_shared);  // 将 key.data 的no_shared 添加到last_key_后
+                   non_shared);  // 将 key.data 的 no_shared 添加到last_key_后
   assert(Slice(last_key_) == key);
   counter_++;
 }

@@ -121,7 +121,7 @@ class LEVELDB_EXPORT Cache {
 
 
 
-  virtual void StructPrint(int s) const =0;
+  virtual void StructPrint(int shard_index) const =0;
 };
 
 }  // namespace leveldb

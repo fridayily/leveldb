@@ -52,16 +52,24 @@ TEST_F(FilterBlockTest, EmptyBuilder) {
 
 TEST_F(FilterBlockTest, SingleChunk) {
   FilterBlockBuilder builder(&policy_);
+
+  // 开始一个新的数据块（block_offset=100）
+  // 计算出filter_index = 100/2048 = 0
   builder.StartBlock(100);
+
+  // 添加键到当前过滤器
   builder.AddKey("foo");
   builder.AddKey("bar");
   builder.AddKey("box");
+  // 由于block_offset=200和300都小于2048，所以都属于同一个过滤器索引0
   builder.StartBlock(200);
   builder.AddKey("box");
   builder.StartBlock(300);
   builder.AddKey("hello");
+  // 完成过滤器块构建，生成最终的过滤器数据
   Slice block = builder.Finish();
   FilterBlockReader reader(&policy_, block);
+  // block_offset=100 对应过滤器索引0，该过滤器包含所有添加的键
   ASSERT_TRUE(reader.KeyMayMatch(100, "foo"));
   ASSERT_TRUE(reader.KeyMayMatch(100, "bar"));
   ASSERT_TRUE(reader.KeyMayMatch(100, "box"));

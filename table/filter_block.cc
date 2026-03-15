@@ -17,7 +17,7 @@ static const size_t kFilterBase = 1 << kFilterBaseLg;
 
 FilterBlockBuilder::FilterBlockBuilder(const FilterPolicy* policy)
     : policy_(policy) {}
-// 当block_offset超过kFilterBase 2048 后
+// 根据 block_offset 计算过滤器索引（对 2048 取整）
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
   uint64_t filter_index = (block_offset / kFilterBase);
   assert(filter_index >= filter_offsets_.size());
@@ -38,12 +38,12 @@ Slice FilterBlockBuilder::Finish() {
   }
 
   // Append array of per-filter offsets
-  const uint32_t array_offset = result_.size(); // 滤波器大小
-  for (size_t i = 0; i < filter_offsets_.size(); i++) { // 滤波器数量
-    PutFixed32(&result_, filter_offsets_[i]); // 将第i个滤波器的偏移量添加到result_中
+  const uint32_t array_offset = result_.size(); // 过滤器大小
+  for (size_t i = 0; i < filter_offsets_.size(); i++) { // 过滤器数量
+    PutFixed32(&result_, filter_offsets_[i]); // 将第i个过滤器的偏移量添加到result_中
   }
 
-  PutFixed32(&result_, array_offset); // 将滤波器的数据的大小添加到result_
+  PutFixed32(&result_, array_offset); // 将过滤器的数据的大小添加到result_
   result_.push_back(kFilterBaseLg);  // Save encoding parameter in result
   return Slice(result_); // push_back 一个 size_t 对象，这里长度加1
 }
@@ -66,7 +66,7 @@ void FilterBlockBuilder::GenerateFilter() {
   }
 
   // Generate filter for current set of keys and append to result_.
-  filter_offsets_.push_back(result_.size()); // result 用于存储滤波器数据，这里存储滤波器数据偏移量
+  filter_offsets_.push_back(result_.size()); // result 用于存储过滤器数据，这里存储过滤器数据偏移量
   policy_->CreateFilter(&tmp_keys_[0], static_cast<int>(num_keys), &result_);
 
   tmp_keys_.clear(); // 清空临时的keys,存的是 user_key

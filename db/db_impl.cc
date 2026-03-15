@@ -114,8 +114,8 @@ Options SanitizeOptions(const std::string& dbname,
     // 将现存的 db_name/LOG 改名为 db_name/LOG.old
     // 然后新建 db_name/LOG
     src.env->RenameFile(InfoLogFileName(dbname), OldInfoLogFileName(dbname));
-    Status s = src.env->NewLogger(InfoLogFileName(dbname),
-                                  &result.info_log);  // 创建 LOG 文件
+    // 创建 LOG 文件
+    Status s = src.env->NewLogger(InfoLogFileName(dbname), &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
       result.info_log = nullptr;
@@ -707,11 +707,8 @@ Status DBImpl::TEST_CompactMemTable() {
   if (s.ok()) {
     // Wait until the compaction completes
     MutexLock l(&mutex_);  // 访问共享区加锁
-    while (
-        imm_ != nullptr &&
-        bg_error_
-            .ok()) {  // imm_
-                      // 不为空，就一直阻塞在这里，直到收到通知，跳出while循环
+    // imm_不为空，就一直阻塞在这里，直到收到通知，跳出while循环
+    while (imm_ != nullptr && bg_error_.ok()) {
       background_work_finished_signal_.Wait();
     }
     if (imm_ != nullptr) {
@@ -1589,8 +1586,8 @@ void DBImpl::GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
 // Default implementations of convenience methods that subclasses of DB
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
-  WriteBatch
-      batch;  // 初始化 12 字节 ，即 kHeader， 8字节的sequence + 4 字节长度
+  // 初始化 12 字节 ，即 kHeader， 8字节的sequence + 4 字节长度
+  WriteBatch batch;
   batch.Put(key, value);
   return Write(opt, &batch);
 }
@@ -1622,18 +1619,19 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     // Create new log and a corresponding memtable.
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     WritableFile* lfile;
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"create LogFile {}",
-      LogFileName(dbname,new_log_number));
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create LogFile {}",
+                       LogFileName(dbname, new_log_number));
     s = options.env->NewWritableFile(LogFileName(dbname, new_log_number),
                                      &lfile);
     if (s.ok()) {
       edit.SetLogNumber(new_log_number);
       impl->logfile_ = lfile;
       impl->logfile_number_ = new_log_number;
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(),"log Write Init {}.log", new_log_number);
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "log Write Init {}.log",
+                         new_log_number);
       impl->log_ = new log::Writer(lfile);
       // 初始化时创建 arena ,分配 4096 + sizeof(char*) 字节空间
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(),"new MemTable");
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "new MemTable");
       impl->mem_ = new MemTable(impl->internal_comparator_);
       impl->mem_->Ref();
     }

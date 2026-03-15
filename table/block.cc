@@ -35,15 +35,18 @@ Block::Block(const BlockContents& contents)
     // 一个 block 中存在重启点信息，肯定会大于 sizeof(uint32)
     size_ = 0;  // Error marker
   } else {
-    // block 中最后一个32位空间存储的是存储点个数，block
-    // 中数据不包含压缩类型和CRC
+    /*
+     * block 中最后一个 32 位空间存储的是存储点个数 block 中数据不包含压缩类型和CRC
+     * size 是  kv数据 + 重启点 offset 数组+ Fixed32(重启点个数)
+     *  max_restarts_allowed 是理论上最大重启点个数，用于验证数据块格式的有效性
+     */
     size_t max_restarts_allowed = (size_ - sizeof(uint32_t)) / sizeof(uint32_t);
     // NumRestarts 在 block 数据中获取重启点数量
     if (NumRestarts() > max_restarts_allowed) {
       // The size is too small for NumRestarts()
       size_ = 0;
     } else {
-      // 重启点的偏移的起始地址，
+      // 重启点的偏移的起始地址 [重启点1偏移][重启点2偏移][重启点3偏移][重启点个数]
       // n 个重启点占 n 个fixed32, 再加上一个 fixed32
       // 记录数量，即存储的kv数据结束的地址
       restart_offset_ = size_ - (1 + NumRestarts()) * sizeof(uint32_t);
@@ -117,8 +120,17 @@ class Block::Iter : public Iterator {
 
   // Return the offset in data_ just past the end of the current entry.
   inline uint32_t NextEntryOffset() const {
-    // data_指向 block 开始位置，value是index_block 或 data_block
-    // 的偏移，加上value的长度，就是value 结束的地方，即下一个value 开始的地址
+    /*
+     * data_指向 block 开始位置，value 是 index_block 或 data_block 中
+     *    存储存入的 k,v 值中 v 的视图 slice
+     * 假设 block 中数据如下
+     *   [k0][v0][k1][v1][k2][v2]
+     * 迭代过程如下：
+     *    第一次： value_.data() 和 data_ 指向相同位置，value_.size() 大小为0
+     *        根据数据格式的定义(shared,no_shared,value.size,key_non_shared,value)
+     *        读取k,v, 并将 v 存储到 value 中
+     *    第二次： 下面的返回语句计算了下一个 entry 开始的位置，从而可以获取第 2 个 k,v
+     */
     return (value_.data() + value_.size()) -
            data_;  // value_.data+value.size 指向value结束的地方
   }
@@ -139,7 +151,7 @@ class Block::Iter : public Iterator {
     // ParseNextKey() starts at the end of value_, so set value_ accordingly
     uint32_t offset = GetRestartPoint(index);
     // value_ 指向data_block 中第 index 个重启点的开始位置
-    // 这里 Slice 大小为0 ，说明 value_ 存的不是key 对应的 value
+    // 这里 Slice 大小为0 ，说明 value_ 存的不是key 对应的 value, 而是 k,v 开始的地方
     value_ = Slice(data_ + offset, 0);  // value 指针指向data_
   }
 

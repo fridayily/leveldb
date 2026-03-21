@@ -66,6 +66,9 @@ class MemTable {
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
 
+  friend void PrintMemTableSkipList(const MemTable& memtable);
+
+
   struct KeyComparator {
     const InternalKeyComparator comparator;
     explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) {}
@@ -80,6 +83,9 @@ class MemTable {
   int refs_;
   Arena arena_;
   Table table_;
+public:
+  // Return the underlying Table (SkipList)
+  const Table& GetTable() const { return table_; }
 };
 
 }  // namespace leveldb

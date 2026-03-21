@@ -932,6 +932,61 @@ TEST_F(Harness, RandomizedLongDB) {
   ASSERT_GT(files, 0);
 }
 
+std::string DecodeMemTableKey(const char* encoded_key) {
+  // 1. 获取长度前缀的internal key
+  uint32_t len;
+  const char* p = encoded_key;  // 地址的开头存的是 value 的长度
+  p = GetVarint32Ptr(p, p + 5, &len);
+  Slice internal_key = Slice(p, len);
+  p += len;
+  p = GetVarint32Ptr(p, p + 5, &len);
+  Slice val = Slice(p, len);
+
+  // 2. 解析internal key为user key、sequence number和value type
+  ParsedInternalKey parsed_key;
+  if (ParseInternalKey(internal_key, &parsed_key)) {
+    // 构建可读的字符串表示
+    std::ostringstream oss;
+    oss << "" << parsed_key.user_key.ToString()
+        << "@"
+        // << parsed_key.sequence << "@"
+        // << (parsed_key.type == kTypeValue ? "V" : "D")
+        // << "@"
+        << val.ToString();
+    return oss.str();
+  } else {
+    return "<invalid_key>";
+  }
+}
+
+TEST(MemTableTest, Visualize) {
+  InternalKeyComparator cmp(BytewiseComparator());
+  MemTable* memtable = new MemTable(cmp);
+  memtable->Ref();
+  WriteBatch batch;
+  WriteBatchInternal::SetSequence(&batch, 100);
+  batch.Put(std::string("k03"), std::string("v3"));
+  batch.Put(std::string("k07"), std::string("v7"));
+  batch.Put(std::string("k01"), std::string("v1"));
+  batch.Put(std::string("k02"), std::string("v2"));
+  batch.Put(std::string("k04"), std::string("v4"));
+  batch.Put(std::string("k05"), std::string("v5"));
+  batch.Put(std::string("k06"), std::string("v6"));
+  batch.Put(std::string("k08"), std::string("v8"));
+  batch.Put(std::string("k09"), std::string("v9"));
+  batch.Put(std::string("k10"), std::string("v10"));
+  batch.Put(std::string("k11"), std::string("v11"));
+  batch.Put(std::string("k12"), std::string("v12"));
+  batch.Put(std::string("k13"), std::string("v13"));
+  batch.Put(std::string("k14"), std::string("v14"));
+  batch.Put(std::string("k15"), std::string("v15"));
+  batch.Put(std::string("k16"), std::string("v16"));
+  // note 插入第 17 个元素时 skip_list 产生第3层
+  batch.Put(std::string("k17"), std::string("v17"));
+  ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, memtable).ok());
+  PrintSkipList(memtable->GetTable(), DecodeMemTableKey);
+}
+
 TEST(MemTableTest, Simple) {
   InternalKeyComparator cmp(BytewiseComparator());
   MemTable* memtable = new MemTable(cmp);

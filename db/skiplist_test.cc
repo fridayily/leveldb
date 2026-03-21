@@ -96,6 +96,121 @@ TEST(SkipTest, My) {
   std::cout << "key: " << iter.key() << std::endl;
 }
 
+TEST(SkipTest, Visualize) {
+  Arena arena;
+  Comparator cmp;
+  SkipList<Key, Comparator> list(cmp, &arena);
+
+  // 插入一些测试数据
+  list.Insert(1);
+  list.Insert(2);
+  list.Insert(3);
+  list.Insert(4);
+  list.Insert(5);
+  list.Insert(6);
+  list.Insert(7);
+  list.Insert(8);
+  list.Insert(9);
+  list.Insert(10);
+  list.Insert(11);
+  list.Insert(12);
+  list.Insert(13);
+  list.Insert(14);
+  list.Insert(15);
+  list.Insert(16);
+  list.Insert(17);
+  list.Insert(19);
+  list.Insert(20);
+  list.Insert(21);
+
+  // 打印 SkipList 结构
+  PrintSkipList(list);
+}
+
+int RandomHeightTest(Random& rnd) {
+  static const unsigned int kBranching = 4;
+  int kMaxHeight = 12;
+  int height = 1;
+  while (height < kMaxHeight && rnd.OneIn(kBranching)) {
+    height++;
+  }
+  return height;
+}
+
+struct RandomTest {
+  static constexpr unsigned int kBranching = 4;
+  static constexpr unsigned int kMaxHeight = 12;
+  Random rnd{0xdeadbeef};
+  int RandomHeight() {
+    int height = 1;
+    while (height < kMaxHeight && rnd.OneIn(kBranching)) {
+      height++;
+    }
+    return height;
+  }
+};
+
+TEST(RandomHeight, Simple) {
+  RandomTest random_test;
+  std::vector<int> result;
+  result.reserve(17);
+  for (int i = 0; i < 17; i++) {
+    int height = random_test.RandomHeight();
+    std::cout << height << ", ";
+    result.emplace_back(height);
+  }
+  std::cout << std::endl;
+  // note: 插入第17个元素时才会有第 3 层
+  const std::vector<int> expect_result = {2, 1, 1, 1, 1, 1, 1, 1, 2,
+                                          1, 1, 1, 1, 1, 2, 1, 3};
+  EXPECT_EQ(result, expect_result);
+}
+
+// Test for RandomHeight method
+TEST(RandomHeight, Distribution) {
+  RandomTest random_test;
+  const int kNumSamples = 10000;
+  const int kMaxExpectedHeight = 12;
+  const double kBranchingFactor = 4.0;
+
+  Arena arena;
+  Comparator cmp;
+  SkipList<Key, Comparator> list(cmp, &arena);
+
+  // Count the frequency of each height
+  int height_counts[kMaxExpectedHeight + 1] = {0};
+
+  for (int i = 0; i < kNumSamples; ++i) {
+    int height = random_test.RandomHeight();
+    ASSERT_GE(height, 1);
+    ASSERT_LE(height, kMaxExpectedHeight);
+    height_counts[height]++;
+  }
+
+  // Check that all heights are generated within the expected range
+  for (int i = 1; i <= kMaxExpectedHeight; ++i) {
+    EXPECT_GT(height_counts[i], 0) << "Height " << i << " never generated";
+  }
+
+  // Check that the distribution roughly follows geometric distribution
+  // with branching factor 4
+  double expected_ratio = 1.0;
+  for (int i = 1; i < kMaxExpectedHeight; ++i) {
+    // Allow for some variance in the distribution
+    double actual_ratio =
+        static_cast<double>(height_counts[i]) / height_counts[i + 1];
+    EXPECT_NEAR(actual_ratio, kBranchingFactor, 0.5 * kBranchingFactor)
+        << "Ratio between height " << i << " and " << i + 1 << " is off";
+  }
+
+  // Print the distribution for debugging
+  fprintf(stderr, "RandomHeight distribution:\n");
+  for (int i = 1; i <= kMaxExpectedHeight; ++i) {
+    fprintf(stderr, "  Height %2d: %8d (%.2f%%)\n", i, height_counts[i],
+            100.0 * height_counts[i] / kNumSamples);
+  }
+}
+
 TEST(SkipTest, InsertAndLookup) {
   // 判断为 false 时输出 100
   ASSERT_TRUE(1 == 1) << 100;
@@ -470,9 +585,9 @@ TEST(SkipTest, ConcurrentWithoutThreads) {
   ConcurrentTest test;
   Random rnd(test::RandomSeed());
   for (int i = 0; i < 100; i++) {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"ReadStep {}",i);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "ReadStep {}", i);
     test.ReadStep(&rnd);
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"WriteStep {}",i);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "WriteStep {}", i);
     test.WriteStep(&rnd);
   }
 }

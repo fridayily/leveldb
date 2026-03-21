@@ -116,20 +116,26 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
     // Check that it belongs to same user key.  We do not check the
     // sequence number since the Seek() call above should have skipped
     // all entries with overly large sequence numbers.
-    const char* entry = iter.key(); // 根据memkey 从skip list里获得到大于等于指定key的entry，里面有k,v
+    // 根据memkey 从skip list里获得到大于等于指定key的entry，里面有k,v
+    const char* entry = iter.key();
     uint32_t key_length; // 用于记录 Internal Key 长度
-    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length); // 指向 user_key 开头，保存 key_length
+    // 指向 user_key 开头，保存 key_length
+    const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
+    //迭代器里面取出来的值和要查找的key 比较，这里版本号可能不一样
     if (comparator_.comparator.user_comparator()->Compare(
-            Slice(key_ptr, key_length - 8), key.user_key()) == 0) { //迭代器里面取出来的值和要查找的key 比较，这里版本号可能不一样
+            Slice(key_ptr, key_length - 8), key.user_key()) == 0) {
       // Correct user key  说明 user_key 相等
-      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8); // 取出 sequence num + valueType，刚好 8 字节
+      // 取出 sequence num + valueType，刚好 8 字节
+      const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
-          Slice v = GetLengthPrefixedSlice(key_ptr + key_length); // 传入的是value的开始地址,取得 v
+          // 传入的是value的开始地址,取得 v
+          Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
           value->assign(v.data(), v.size()); // value 重新赋值
           return true;
         }
-        case kTypeDeletion: // 查找返回的entry 类型是 del 的，则直接设置找不到
+        case kTypeDeletion:
+          // 查找返回的entry 类型是 del 的，则直接设置找不到
           *s = Status::NotFound(Slice());
           return true;
       }
@@ -138,4 +144,100 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s) {
   return false;
 }
 
+
+// std::string ParseMemTableKey(const char* key) {
+//   uint32_t key_length;
+//   const char* key_ptr = GetVarint32Ptr(key, key + 5, &key_length);
+//
+//   Slice internal_key(key_ptr, key_length);
+//   ParsedInternalKey parsed_key;
+//
+//   if (ParseInternalKey(internal_key, &parsed_key)) {
+//     return parsed_key.DebugString();
+//   } else {
+//     return "[Invalid key]";
+//   }
+// }
+//
+// // 打印MemTable中的SkipList结构
+// void PrintMemTableSkipList(const MemTable& memtable) {
+//   // 获取内部的SkipList
+//   const auto& table = memtable.GetTable();
+//
+//   // Step 1: 收集所有键及其原始指针
+//   struct KeyInfo {
+//     const char* raw_key;
+//     std::string parsed_key;
+//   };
+//   std::vector<KeyInfo> all_keys;
+//
+//   {
+//     typename MemTable::Table::Iterator iter(&table);
+//     for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
+//       const char* raw_key = iter.key();
+//       all_keys.push_back({raw_key, ParseMemTableKey(raw_key)});
+//     }
+//   }
+//
+//   if (all_keys.empty()) {
+//     std::cout << "SkipList is empty." << std::endl;
+//     return;
+//   }
+//
+//   // Step 2: 获取SkipList的最大高度
+//   int max_height = table.GetMaxHeight();
+//
+//   // Step 3: 记录每一层的节点
+//   std::vector<std::unordered_set<const char*>> level_nodes(max_height);
+//
+//   // 注意：这里需要访问SkipList的私有成员head_
+//   // 假设PrintSkipList函数是SkipList的友元
+//   auto head = table.head_;
+//
+//   for (int level = 0; level < max_height; ++level) {
+//     auto current = head;
+//     while (true) {
+//       auto next = current->Next(level);
+//       if (next == nullptr) break;
+//       level_nodes[level].insert(next->key);
+//       current = next;
+//     }
+//   }
+//
+//   // Step 4: 打印SkipList结构
+//   std::cout << "MemTable SkipList structure:" << std::endl;
+//   std::cout << "Max height: " << max_height << std::endl;
+//   std::cout << "-------------------------------------------------------------" << std::endl;
+//
+//   // Step 5: 从上到下打印每一层
+//   for (int level = max_height - 1; level >= 0; --level) {
+//     std::cout << "Level " << std::setw(2) << level << ": ";
+//
+//     // 打印HEAD
+//     std::cout << "HEAD -> ";
+//
+//     // 打印当前层的节点
+//     for (size_t i = 0; i < all_keys.size(); ++i) {
+//       if (level_nodes[level].count(all_keys[i].raw_key)) {
+//         // 节点在当前层
+//         std::cout << all_keys[i].parsed_key;
+//       } else {
+//         // 节点不在当前层，打印空格
+//         // 估算需要的空格数
+//         size_t spaces_needed = all_keys[i].parsed_key.size();
+//         std::cout << std::string(spaces_needed, ' ');
+//       }
+//
+//       // 打印箭头（除了最后一个节点）
+//       if (i < all_keys.size() - 1) {
+//         std::cout << " -> ";
+//       }
+//     }
+//
+//     // 打印层结束
+//     std::cout << " -> nullptr" << std::endl;
+//   }
+//
+//   std::cout << "-------------------------------------------------------------" << std::endl;
+// }
 }  // namespace leveldb

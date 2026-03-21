@@ -108,8 +108,7 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
 void WriteBatch::Put(const Slice& key, const Slice& value) {
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   // push_back 只能向字符串末尾添加一个字符
-  rep_.push_back(
-      static_cast<char>(kTypeValue));
+  rep_.push_back(static_cast<char>(kTypeValue));
   PutLengthPrefixedSlice(&rep_, key);
   PutLengthPrefixedSlice(&rep_, value);
 }

@@ -25,7 +25,7 @@ void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
     GenerateFilter();
   }
 }
-
+// keys_ 保存添加的 key,中间没有分割符，start_ 保存每个 key 在 keys_ 中的起始偏移量
 void FilterBlockBuilder::AddKey(const Slice& key) {
   Slice k = key; // internal_key
   start_.push_back(keys_.size()); // filter_block 的偏移量,keys存储了全部的key
@@ -56,15 +56,15 @@ void FilterBlockBuilder::GenerateFilter() {
     return;
   }
 
-  // Make list of keys from flattened key structure
+  // Make list of keys from flattened key structure 添加 keys_ 的长度到 start_ 数组，即keys_ 字符串结束的位置
   start_.push_back(keys_.size());  // Simplify length computation
   tmp_keys_.resize(num_keys); // 将 keys_ 中存储的key 根据存储在 start_中的偏移量提取出来放到 tmp_keys_中
   for (size_t i = 0; i < num_keys; i++) {
     const char* base = keys_.data() + start_[i];
-    size_t length = start_[i + 1] - start_[i];
+    size_t length = start_[i + 1] - start_[i]; // 根据 keys_ 字符串和 start_ 中的偏移量，将原始的 key 存储到 tmp_keys_ 中
     tmp_keys_[i] = Slice(base, length);
   }
-
+  // result_保存了多个过滤器，这里存储每个过滤器的偏移量，这个值会递增
   // Generate filter for current set of keys and append to result_.
   filter_offsets_.push_back(result_.size()); // result 用于存储过滤器数据，这里存储过滤器数据偏移量
   policy_->CreateFilter(&tmp_keys_[0], static_cast<int>(num_keys), &result_);

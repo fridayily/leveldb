@@ -4,6 +4,8 @@
 
 #include "util/arena.h"
 
+
+
 namespace leveldb {
 
 static const int kBlockSize = 4096;
@@ -17,31 +19,57 @@ Arena::~Arena() {
   }
 }
 
+/*
+ * 此函数一般由 Arena::Allocate(size_t bytes) 调用
+ * 设要分配的字节数为 n:
+ * case1:
+ *   alloc_bytes_remaining_ = 0
+ *   分配一个 4096 字节的 block
+ *   alloc_bytes_remaining_ = 4096
+ *   从中获取 n 个字节使用，alloc_ptr_ 指向 &block + n
+ * case2:
+ *   n < alloc_bytes_remaining_
+ *   从 alloc_bytes_remaining_ 扣减 n 个字节, alloc_ptr_ 指向 &block + n
+ * case3:
+ *   n > alloc_bytes_remaining_ && n > kBlockSize / 4
+ *   直接分配一个大的内存块使用，alloc_ptr_ 保持不变，
+ *   这样下次需要小内存时，还是可以使用上一个 block 的内存
+ *  case4:
+ *    分配一个新的 4096 的内存块
+ *    alloc_bytes_remaining_ = 4096
+ *    从中获取 n 个字节使用，alloc_ptr_ 指向 &block + n
+ */
 char* Arena::AllocateFallback(size_t bytes) {
   if (bytes > kBlockSize / 4) {
     // Object is more than a quarter of our block size.  Allocate it separately
     // to avoid wasting too much space in leftover bytes.
     // 分配了新的空间,只分配了 bytes 大小,而不是 kBlockSize
-    // 这个 result 被记录在 blocks_[i] 中
-    // 在 block[i-1] 指向的内存中还有部分未使用的内存可以继续使用
+    // 注意这里直接返回了 result
+    // 假如这里是分配第 i 块 block[i]
+    // alloc_ptr_ 还是指向 block[i-1] 中还未分配出去的内存的地址
     char* result = AllocateNewBlock(bytes);
     return result;
   }
 
   // We waste the remaining space in the current block.
-  alloc_ptr_ = AllocateNewBlock(kBlockSize); // 分配新块
-  alloc_bytes_remaining_ = kBlockSize; // 新块的大小就是剩余可分配大小
-
-  char* result = alloc_ptr_; // 指向刚开辟出来的 kBlockSize 空间
-  alloc_ptr_ += bytes; // 分配 bytes 出去
-  alloc_bytes_remaining_ -= bytes; // 可用空间减少
+  // 分配新块
+  alloc_ptr_ = AllocateNewBlock(kBlockSize);
+  // 新块的大小就是剩余可分配大小
+  alloc_bytes_remaining_ = kBlockSize;
+  // 指向刚开辟出来的 kBlockSize 空间
+  char* result = alloc_ptr_;
+  // 分配 bytes 出去
+  alloc_ptr_ += bytes;
+  // 可用空间减少
+  alloc_bytes_remaining_ -= bytes;
   return result;
 }
 
 
 char* Arena::AllocateAligned(size_t bytes) {
-  const int align = (sizeof(void*) > 8) ? sizeof(void*) : 8; // 判断指针长度
-  // 如果align不是2的幂，那么表达式(align & (align - 1))的结果将不等于0，
+  // 判断指针长度
+  const int align = (sizeof(void*) > 8) ? sizeof(void*) : 8;
+  // 如果 align 不是 2 的幂，那么表达式 (align & (align - 1)) 的结果将不等于 0，
   // 导致编译错误并显示错误信息
   static_assert((align & (align - 1)) == 0,
                 "Pointer size should be a power of 2");
@@ -87,6 +115,7 @@ char* Arena::AllocateAligned(size_t bytes) {
 }
 
 char* Arena::AllocateNewBlock(size_t block_bytes) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "allocate {} bytes",block_bytes);
   char* result = new char[block_bytes]; // 开辟新空间
   // 每次分配返回的指针存到一个 vector 中,用一个数组记录了每次分配的情况
   blocks_.push_back(result);

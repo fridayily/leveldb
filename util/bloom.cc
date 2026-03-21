@@ -44,21 +44,35 @@ class BloomFilterPolicy : public FilterPolicy {
     bits = bytes * 8;
 
     const size_t init_size = dst->size();
-    //这里将数据全部填充为 0，所以 push_back 将k_ 添加到最后，新增一个元素
-    // dst 的最大长度为 init_size + bytes，原始值不变，剩余的用 0 填充
-    // dst 的值是一个指针，指向一个 string, resize 是对指向的 string 进行操作
-    // 即 初始化 和 在最后面添加 k_
+    /*
+     * resize(n,0)
+     *   如果 count 大于当前字符串长度，会在末尾添加 count - length() 个默认字符（值为 '\0'）
+     *   如果 count 小于当前字符串长度，会截断字符串到前 count 个字符
+     *
+     * 这里初始化一个 bloom filter 数组，并在数组后面添加一个字节保存 hash 函数个数 k
+     *
+     * |<- bits = bytes*8  ->|hash 函数数｜
+     * [000000000000000000000][   k     ]
+     *
+     * 多次调用 CreateFilter，可以有多个 bloom filter 数组（类似 append 一个过滤器）
+     *    [bloom filter1][k1][bloom filter2][k2]
+     *
+     */
     dst->resize(init_size + bytes, 0); // dst 是指针, hash 数组就存在这里,这里确定了 hash 表的大小
     dst->push_back(static_cast<char>(k_));  // Remember # of probes in filter 保存hash 函数个数
     char* array = &(*dst)[init_size]; // dst 有个初始长度，后面会加上 bytes 字节用于放置 hash 数组 ，这里定位到放hash 的最开始的位置
     for (int i = 0; i < n; i++) {
       // Use double-hashing to generate a sequence of hash values.
       // See analysis in [Kirsch,Mitzenmacher 2006].
-      uint32_t h = BloomHash(keys[i]); // 取出第i个key，进行 hash
+      // 取出第i个key，进行 hash
+      uint32_t h = BloomHash(keys[i]);
       const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
-      for (size_t j = 0; j < k_; j++) { // 一共进行 k_ 次 hash,每次都将结果存入 array 中
-        const uint32_t bitpos = h % bits; // bloom 滤波器长度为bits，即第几个bit ,通过下面代码设置该bit为1，每一个key经过6次hash，设置6个bit，
-        array[bitpos / 8] |= (1 << (bitpos % 8)); // 这里采用 或 运算
+      // 一共进行 k_ 次 hash,每次都将结果存入 array 中
+      for (size_t j = 0; j < k_; j++) {
+        // bloom 滤波器长度为bits，即第几个bit ,通过下面代码设置该bit为1，每一个key经过6次hash，设置6个bit
+        const uint32_t bitpos = h % bits;
+        // 每次都是改变一个字节的数据，这里采用 或 运算, 因此只会改变一个字节中的第 1 << (bitpos % 8) 位
+        array[bitpos / 8] |= (1 << (bitpos % 8));
         h += delta;
       }
     }

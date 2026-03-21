@@ -287,9 +287,9 @@ bool SkipList<Key, Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
 // 找到第一个大于等于 key 的 node.
 // prev 保存的是每一层中比key小的结点中最大的节点
 // 假设 skip_list 如下
-// 1->2---->nullptr
-// 1->2->5->nullptr
-// 1->2->5->10
+// level2: 1->2---------->nullptr
+// level1: 1->2->5------->nullptr
+// level0: 1->2->5->10--->nullptr
 // 这里 1、2、5、10 分别代表一个节点
 // 假设要查找 7,即 key=7
 // 在 level = 2 查找,x=1,next=2, KeyIsAfterNode(7,2) = true

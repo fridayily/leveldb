@@ -27,7 +27,15 @@ class BytewiseComparatorImpl : public Comparator {
   int Compare(const Slice& a, const Slice& b) const override {
     return a.compare(b);
   }
-  // 取一个大于start。小于 limit的字符串  (k01,k03)->k02  (k03,k04)->k03
+  /*
+   * 查找一个最短的字符串，使其大于原始 start 值且小于 limit 值
+   * (k01,k03)->k02
+   * 找不到大于的就返回 start
+   * (k03,k04)->k03
+   *
+   * start：输入输出参数，原始起始字符串，函数执行后将被修改为最短分隔符
+   * limit：输入参数，目标结束字符串
+   */
   void FindShortestSeparator(std::string* start,
                              const Slice& limit) const override {
     // Find length of common prefix
@@ -73,11 +81,23 @@ class BytewiseComparatorImpl : public Comparator {
 };
 }  // namespace
 
-// C++ 标准规定函数级静态变量的析构函数在程序终止时调用
-// 这导致这种行为有时会导致非常奇怪且难以追踪的问题
-// 通常会尽量避免使用具有复杂析构函数的静态函数级变量
-// static function-level
-// C++11 标准规定了局部静态变量的初始化是线程安全的
+/*
+ *  C++ 标准规定函数级静态变量的析构函数在程序终止时调用
+ *  当存在多个静态变量且它们的析构函数相互依赖时，可能导致未定义行为
+ *  析构顺序问题可能导致难以追踪的崩溃或资源泄漏
+ *  通常会尽量避免使用具有复杂析构函数的静态函数级变量
+ *  static function-level
+ *  C++11 标准规定了局部静态变量的初始化是线程安全的
+ *  避免了析构函数调用可能带来的问题
+ *
+ *  clockwise 顺时针方向
+ *  counterclockwise 逆时针方向
+ *  timewise 在时间方面
+ *
+ *  bytewise - 按字节方式
+ *  bitwise - 按位方式
+ *  stepwise - 逐步方的
+ */
 const Comparator* BytewiseComparator() {
   // 局部静态对象声明
   // 在创建 Comparator 时实例化，在程序结束时析构

@@ -11,6 +11,10 @@
 #include <cstdint>
 #include <vector>
 
+#include "leveldb/spd_logger.h"
+
+#include "spdlog/spdlog.h"
+
 namespace leveldb {
 
 class Arena {

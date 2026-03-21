@@ -16,8 +16,10 @@ namespace leveldb {
 template <typename InstanceType>
 class NoDestructor {
  public:
-  template <typename... ConstructorArgTypes> // 可变参数模板,允许不同类型
-  explicit NoDestructor(ConstructorArgTypes&&... constructor_args) { // 构造函数 instance(kGoldenA, kGoldenB);
+  // 可变参数模板,允许不同类型
+  // 构造函数，例如 NoDestructor<DoNotDestruct> instance(kGoldenA, kGoldenB);
+  template <typename... ConstructorArgTypes>
+  explicit NoDestructor(ConstructorArgTypes&&... constructor_args) {
     static_assert(sizeof(instance_storage_) >= sizeof(InstanceType),
                   "instance_storage_ is not large enough to hold the instance");
     static_assert(

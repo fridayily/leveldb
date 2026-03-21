@@ -82,19 +82,26 @@ TEST_F(FilterBlockTest, SingleChunk) {
 TEST_F(FilterBlockTest, MultiChunk) {
   FilterBlockBuilder builder(&policy_);
 
-  // First filter
-  builder.StartBlock(0); // 若条件符合，创建过滤器
+  // First filter 创建第 1 个过滤器
+  builder.StartBlock(0); //
   builder.AddKey("foo");
-  builder.StartBlock(2000); // 若条件符合，创建过滤器
+  // (2000/ 2048) = 0 , 还不需要创建过滤器
+  builder.StartBlock(2000);
   builder.AddKey("bar");
 
   // Second filter
+  /*
+   * (3100/2048) = 1 > filter_offsets_.size() 创建一个过滤器
+   * 现在 filter_offsets_.size() = 0
+   * 1 >0 , 根据 [foo,bar] 创建一个过滤器
+   */
   builder.StartBlock(3100); // 若条件符合，创建过滤器
   builder.AddKey("box");
 
   // Third filter is empty
 
   // Last filter
+  // 9000/2048 = 4 ,前面会有4 个过滤器
   builder.StartBlock(9000); // 若条件符合，创建过滤器
   builder.AddKey("box");
   builder.AddKey("hello");
@@ -108,6 +115,11 @@ TEST_F(FilterBlockTest, MultiChunk) {
   ASSERT_TRUE(!reader.KeyMayMatch(0, "box"));
   ASSERT_TRUE(!reader.KeyMayMatch(0, "hello"));
 
+  ASSERT_TRUE(!reader.KeyMayMatch(2048, "foo"));
+  ASSERT_TRUE(!reader.KeyMayMatch(2048, "bar"));
+  ASSERT_TRUE(reader.KeyMayMatch(2048, "box"));
+  ASSERT_TRUE(!reader.KeyMayMatch(2048, "hello"));
+
   // Check second filter
   ASSERT_TRUE(reader.KeyMayMatch(3100, "box"));
   ASSERT_TRUE(!reader.KeyMayMatch(3100, "foo"));
@@ -119,6 +131,12 @@ TEST_F(FilterBlockTest, MultiChunk) {
   ASSERT_TRUE(!reader.KeyMayMatch(4100, "bar"));
   ASSERT_TRUE(!reader.KeyMayMatch(4100, "box"));
   ASSERT_TRUE(!reader.KeyMayMatch(4100, "hello"));
+
+  // Check fourth filter (empty)
+  ASSERT_TRUE(!reader.KeyMayMatch(8999, "foo"));
+  ASSERT_TRUE(!reader.KeyMayMatch(8999, "bar"));
+  ASSERT_TRUE(reader.KeyMayMatch(8999, "box"));
+  ASSERT_TRUE(reader.KeyMayMatch(8999, "hello"));
 
   // Check last filter
   ASSERT_TRUE(reader.KeyMayMatch(9000, "box"));

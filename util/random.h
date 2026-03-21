@@ -57,8 +57,20 @@ class Random {
   // Skewed: pick "base" uniformly from range [0,max_log] and then
   // return "base" random bits.  The effect is to pick a number in the
   // range [0,2^max_log-1] with exponential bias towards smaller numbers.
-  // 从[0,max_log] 范围内均匀选择一个值作为 base
-  // 从[0,2^base-1] 范围内选择随机数
+  /*
+   * 从[0,max_log] 范围内均匀选择一个值作为 base
+   * 然后从[0,2^base-1] 范围内选择随机数
+   * 假设 max_log = 3
+   * base值    概率   可能返回值范围   改范围内值的数量
+   *  0	       1/4	[0, 0]	     1
+   *  1	       1/4	[0, 1]	     2
+   *  2	       1/4	[0, 3]	     4
+   *  3	       1/4	[0, 7]	     8
+   *  最终概率分布
+   *  为 0: 1/4 * 1 + 1/4 * 1/2 + 1/4 * 1/4 + 1/4 * 1/8 = 0.46875
+   *  为 1: 1/4 * 0 + 1/4 * 1/2 + 1/4 * 1/4 + 1/4 * 1/8 = 0.21875
+   *
+   */
   uint32_t Skewed(int max_log) { return Uniform(1 << Uniform(max_log + 1)); }
 };
 

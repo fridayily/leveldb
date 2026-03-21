@@ -88,9 +88,24 @@ TEST_F(BloomTest, Small) {
   Add("hello");
   Add("world");
   ASSERT_TRUE(Matches("hello"));
+  // 上面 Matches 构造了过滤器，并清空了 keys, 所以不会再构建新的过滤器
   ASSERT_TRUE(Matches("world"));
   ASSERT_TRUE(!Matches("x"));
   ASSERT_TRUE(!Matches("foo"));
+}
+
+
+TEST_F(BloomTest, TwoFilter) {
+  Add("hello");
+  Add("world");
+  ASSERT_TRUE(Matches("hello"));
+  // 上面 Matches 构造了过滤器，并清空了 keys, 所以不会再构建新的过滤器
+  ASSERT_TRUE(Matches("world"));
+  Add("foo");
+  ASSERT_TRUE(!Matches("x"));
+  ASSERT_TRUE(Matches("foo"));
+  ASSERT_TRUE(!Matches("hello"));
+
 }
 
 static int NextLength(int length) {

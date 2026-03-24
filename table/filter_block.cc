@@ -66,7 +66,8 @@ void FilterBlockBuilder::GenerateFilter() {
   }
   // result_保存了多个过滤器，这里存储每个过滤器的偏移量，这个值会递增
   // Generate filter for current set of keys and append to result_.
-  filter_offsets_.push_back(result_.size()); // result 用于存储过滤器数据，这里存储过滤器数据偏移量
+  filter_offsets_.push_back(result_.size());
+  // result 用于存储过滤器数据，这里存储过滤器数据偏移量
   policy_->CreateFilter(&tmp_keys_[0], static_cast<int>(num_keys), &result_);
 
   tmp_keys_.clear(); // 清空临时的keys,存的是 user_key

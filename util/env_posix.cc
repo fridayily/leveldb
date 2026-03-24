@@ -211,8 +211,9 @@ class PosixRandomAccessFile final : public RandomAccessFile {
     }
   }
 
-  // Open-on-Read 模式, 是一种延迟文件打开策略，文件不是在创建对象时立即打开，
-  // 而是在第一次实际读取时才打开。这有助于在资源受限的环境中节省文件描述符
+  /* Open-on-Read 模式, 是一种延迟文件打开策略，文件不是在创建对象时立即打开，
+   * 而是在第一次实际读取时才打开。这有助于在资源受限的环境中节省文件描述符
+   */
   Status Read(uint64_t offset, size_t n, Slice* result,
               char* scratch) const override {
     int fd = fd_;
@@ -227,11 +228,13 @@ class PosixRandomAccessFile final : public RandomAccessFile {
     assert(fd != -1);
 
     Status status;
-    //  pread(int d, void *buf, size_t nbyte, off_t offset);
-    // fd 打开的文件描述符，buf 用于存储数据的缓冲区，nbyte 要读取的字节数
-    // offset 要读取的位置，以偏移量表示
-    // read 函数是从文件当前位置读取数据
-    // pread 从指定位置读取数据
+    /*
+     *  pread(int fd, void *buf, size_t nbyte, off_t offset);
+     *    fd 打开的文件描述符，buf 用于存储数据的缓冲区，nbyte 要读取的字节数
+     *    offset 要读取的位置，以偏移量表示
+     *  read 函数是从文件当前位置读取数据
+     *  pread 从指定位置读取数据
+    */
     ssize_t read_size = ::pread(fd, scratch, n, static_cast<off_t>(offset));
     *result = Slice(scratch, (read_size < 0) ? 0 : read_size);
     if (read_size < 0) {

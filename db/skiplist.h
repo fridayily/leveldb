@@ -107,11 +107,13 @@ class SkipList {
     // Intentionally copyable
   };
 
+  template <typename DecodeFunc>
+  void PrintSkipList(DecodeFunc decode_func) const;
+
+  void PrintSkipList() const;
   // note: 测试添加
   // template <typename K, class C,class F>
   // friend void PrintSkipList(const SkipList<K, C>& list,F);
-  template <typename K, class C, typename F>
-  friend void PrintSkipList(const SkipList<K, C>& list, F decode_func);
 
  private:
   enum { kMaxHeight = 12 };
@@ -489,18 +491,6 @@ bool SkipList<Key, Comparator>::Contains(const Key& key) const {
   }
 }
 
-
-
-// Default implementation for other types
-// template <typename Key>
-// typename std::enable_if<!std::is_arithmetic<Key>::value &&
-//                          !std::is_same<Key, std::string>::value &&
-//                          !std::is_same<Key, Slice>::value, std::string>::type
-// DefaultSkipListDecoder(const Key& key) {
-//   std::ostringstream oss;
-//   oss << key;
-//   return oss.str();
-// }
 template <typename Key>
 std::string DefaultSkipListDecoder(const Key& key) {
   std::ostringstream oss;
@@ -508,17 +498,19 @@ std::string DefaultSkipListDecoder(const Key& key) {
   return oss.str();
 }
 
-template <>
-inline std::string DefaultSkipListDecoder(const std::string& key) {
-  return "\"" + key + "\"";
-}
+// template <typename Key, class Comparator>
+// template <>
+// inline std::string DefaultSkipListDecoder(const std::string& key) {
+//   return "\"" + key + "\"";
+// }
 
-template <typename Key, class Comparator,typename DecodeFunc = std::string(*)(const Key&)>
-void PrintSkipList(const SkipList<Key, Comparator>& list,DecodeFunc decode_func = DefaultSkipListDecoder<Key>) {
+template <typename Key, class Comparator>
+template <typename DecodeFunc>
+void SkipList<Key, Comparator>::PrintSkipList(DecodeFunc decode_func) const{
   // Step 1: Collect all keys in the SkipList
   std::vector<Key> all_keys;
   {
-    typename SkipList<Key, Comparator>::Iterator iter(&list);
+    Iterator iter(this);
     for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
       all_keys.push_back(iter.key());
     }
@@ -530,11 +522,11 @@ void PrintSkipList(const SkipList<Key, Comparator>& list,DecodeFunc decode_func 
   }
 
   // Step 2: Get max height of the SkipList
-  int max_height = list.GetMaxHeight();
+  int max_height = GetMaxHeight();
 
   // Step 3: Create level maps to record nodes in each level
   std::vector<std::unordered_set<Key>> level_nodes(max_height);
-  auto head = list.head_;
+  auto head = head_;
 
   for (int level = 0; level < max_height; ++level) {
     auto current = head;
@@ -547,17 +539,19 @@ void PrintSkipList(const SkipList<Key, Comparator>& list,DecodeFunc decode_func 
   }
 
   // Step 4: Calculate display parameters
-  constexpr int key_width = 2;  // Display width for each key
-  constexpr int arrow_width = 1; // Width of " -> "
+  constexpr int key_width = 2;;    // Display width for each key
+  constexpr int arrow_width = 1;  // Width of " -> "
 
-  std::cout << std::string(10 + (all_keys.size() + 1) * (key_width + arrow_width), '-') << std::endl;
+  std::cout << std::string(
+                   10 + (all_keys.size() + 1) * (key_width + arrow_width), '-')
+            << std::endl;
 
   std::cout << "SkipList structure:" << std::endl;
   std::cout << "Max height: " << max_height << std::endl;
 
   // Step 5: Print each level from top to bottom
   for (int level = max_height - 1; level >= 0; --level) {
-    std::cout << "Level " << std::setw(2) << level << ": ";
+    std::cout << "Level " << level << ": ";
 
     // Print HEAD
     std::cout << "HEAD" << std::setw(key_width - 4) << "";
@@ -570,15 +564,15 @@ void PrintSkipList(const SkipList<Key, Comparator>& list,DecodeFunc decode_func 
 
       // Print arrow
       std::cout << " -> ";
-      std::string decode_key =  decode_func(current_key);
+      std::string decode_key = decode_func(current_key);
       // Check if current key exists in current level
       if (level_nodes[level].count(current_key)) {
         // Print key with fixed width
-        std::cout << std::setw(key_width) << decode_key;
+        std::cout <<  decode_key;
         key_index++;
       } else {
         // Print spaces if key not in current level
-        std::cout << std::setw(static_cast<int>(decode_key.length())) << "";
+        std::cout << std::setw( static_cast<int>(decode_key.length())) << " ";
         key_index++;
       }
     }
@@ -587,7 +581,14 @@ void PrintSkipList(const SkipList<Key, Comparator>& list,DecodeFunc decode_func 
     std::cout << " -> +inf" << std::endl;
   }
 
-  std::cout << std::string(10 + (all_keys.size() + 1) * (key_width + arrow_width), '-') << std::endl;
+  std::cout << std::string(
+                   10 + (all_keys.size() + 1) * (key_width + arrow_width), '-')
+            << std::endl;
+}
+
+template <typename Key, class Comparator>
+void SkipList<Key, Comparator>::PrintSkipList() const {
+  PrintSkipList(DefaultSkipListDecoder<Key>);
 }
 
 }  // namespace leveldb

@@ -76,6 +76,16 @@ class LEVELDB_EXPORT Table {
   void ReadMeta(const Footer& footer);
   void ReadFilter(const Slice& filter_handle_value);
 
+  /*
+   * Rep 是 Table 类的私有内部结构体
+   * Table 类只提供公开接口 (如 NewIterator()、ApproximateOffsetOf())
+   * 所有具体实现细节都隐藏在 Rep 结构体中, 用户无法直接访问 Rep 结构体的成员
+   * 实现细节对外部完全隐藏，提高了封装性
+   * 可以随意修改 Rep 的内部结构而不影响外部接口
+   * 头文件 table.h 中只需声明 Rep 结构体，无需包含其完整定义
+   * 减少了头文件依赖，提高了编译速度
+   * 更改 Rep 的定义不需要重新编译所有包含 table.h 的文件
+   */
   Rep* const rep_;
 };
 

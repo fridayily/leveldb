@@ -72,6 +72,8 @@ class LEVELDB_EXPORT WriteBatch {
   // Support for iterating over the contents of a batch.
   Status Iterate(Handler* handler) const;
 
+  void HelperPrint();
+
  private:
   friend class WriteBatchInternal;
 

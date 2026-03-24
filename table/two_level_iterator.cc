@@ -69,6 +69,7 @@ class TwoLevelIterator : public Iterator {
   IteratorWrapper data_iter_;  // May be nullptr
   // If data_iter_ is non-null, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the data_iter_.
+
   // data_block_handle_ 存储了 data_block 的 offset 和 size
   // 该值存在 index_block 中
   std::string data_block_handle_;
@@ -178,19 +179,23 @@ void TwoLevelIterator::SetDataIterator(Iterator* data_iter) {
 // 两级迭代器，以及索引index block,二级是 data block
 void TwoLevelIterator::InitDataBlock() {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
-  if (!index_iter_.Valid()) {  // 索引迭代器无效，则将数据迭代器设为NULL
+  if (!index_iter_.Valid()) {
+    // 索引迭代器无效，则将数据迭代器设为NULL
     SPDLOG_LOGGER_INFO(SpdLogger::Log(),
                        "index iter invalid, set data iter to null");
     SetDataIterator(nullptr);
   } else {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "index iter valid, init data block");
-    Slice handle =
-        index_iter_.value();  // index_iter的value 指向data_block的索引
+    // index_iter的value 指向data_block的索引
+    Slice handle = index_iter_.value();
     if (data_iter_.iter() != nullptr &&
         handle.compare(data_block_handle_) == 0) {
       // data_iter_ is already constructed with this iterator, so
       // no need to change anything
-    } else {  // data_block 的 handle 是存储在 index_block 中
+    } else {
+      // data_block 的 handle 是存储在 index_block 中
+      // block_function_可以是 Table::BlockReader
+      // (leveldb::Table*)arg_ 可以显示实例化后的 Table, 其有一个私有成员变量 Rep
       Iterator* iter = (*block_function_)(arg_, options_, handle);
       data_block_handle_.assign(handle.data(), handle.size());
       SetDataIterator(iter);

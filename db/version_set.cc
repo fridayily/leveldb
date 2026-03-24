@@ -295,17 +295,24 @@ struct Saver {
   std::string* value;
 };
 }  // namespace
+
+
+/*
+ * 注意 arg 是一个已经初始化的 Saver 结构体
+ * 里面保存了需要查找的 key, 定义的比较器 Comparator
+ *        和 value 的指针（用于指向查找得到的value）
+ * 这里会比较返回的 key 是否和查找的 key 相等，并设置对应的状态
+ */
 static void SaveValue(void* arg, const Slice& ikey, const Slice& v) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   ParsedInternalKey parsed_key;
   if (!ParseInternalKey(ikey, &parsed_key)) {
     s->state = kCorrupt;
-  } else {  // parsed_key.user_key 迭代器中的key, s->user_key 要查找的key
+  } else {
+    // parsed_key.user_key 迭代器中的key, s->user_key 要查找的key
     if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
-      s->state =
-          (parsed_key.type == kTypeValue)
-              ? kFound
-              : kDeleted;  // 如果查找的key是插入的返回found,如果是delete的，返回删除
+      // 如果查找的key是插入的返回found,如果是delete的，返回删除
+      s->state = (parsed_key.type == kTypeValue) ? kFound : kDeleted;
       if (s->state == kFound) {
         s->value->assign(v.data(), v.size());
       }
@@ -400,9 +407,10 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k,
       state->last_file_read_level = level;
       // 先在缓存中查找key,缓存中没有再在文件中查找，并将文件(ldb文件id和
       // 存储key的 index_block)存到缓存
-      state->s = state->vset->table_cache_->Get(
-          *state->options, f->number, f->file_size, state->ikey, &state->saver,
-          SaveValue);  // SaveValue 是一个回调函数，用于保存查找的结果
+      // SaveValue 是一个回调函数，用于保存查找的结果
+      state->s = state->vset->table_cache_->Get(*state->options, f->number,
+                                                f->file_size, state->ikey,
+                                                &state->saver, SaveValue);
       if (!state->s.ok()) {
         state->found = true;
         return false;
@@ -1531,7 +1539,6 @@ bool FindLargestKey(const InternalKeyComparator& icmp,
   return true;
 }
 
-
 /*
  * 上界 upper bound  下届 lower bound
  * user_key(u1) 表示 file[1] 最大的key
@@ -1589,15 +1596,15 @@ FileMetaData* FindSmallestBoundaryFile(
 // 假设有两个 block, block1 的上界和 block2 的下界的 user_key 相等
 // 如果对 block1 进行压缩（compaction），但不对 block2
 // 进行压缩，那么后续的查询操作可能会返回 错误的结果 由于 block2
-// 没有被压缩，查询操作可能会在第 i 层找到并返回 block2 中的记录，而不是 block1 中的记录
-// 查询操作通常会从最上层开始逐层向下搜索，直到找到匹配的记录
-// 如果 block1 被压缩而 block2 没有被压缩，那么 block1 中的数据可能已经被移动到更低的层，
-// 而 block2 仍然保留在较高的层
-// If there are two blocks, b1=(l1, u1) and b2=(l2, u2) and
-// user_key(u1) = user_key(l2), and if we compact b1 but not b2 then a
-// subsequent get operation will yield an incorrect result because it will
-// return the record from b2 in level i rather than from b1 because it searches
-// level by level for records matching the supplied user key.
+// 没有被压缩，查询操作可能会在第 i 层找到并返回 block2 中的记录，而不是 block1
+// 中的记录 查询操作通常会从最上层开始逐层向下搜索，直到找到匹配的记录 如果
+// block1 被压缩而 block2 没有被压缩，那么 block1
+// 中的数据可能已经被移动到更低的层， 而 block2 仍然保留在较高的层 If there are
+// two blocks, b1=(l1, u1) and b2=(l2, u2) and user_key(u1) = user_key(l2), and
+// if we compact b1 but not b2 then a subsequent get operation will yield an
+// incorrect result because it will return the record from b2 in level i rather
+// than from b1 because it searches level by level for records matching the
+// supplied user key.
 //
 // parameters:
 //   in     level_files:      List of files to search for boundary files.
@@ -1716,8 +1723,10 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 Compaction* VersionSet::CompactRange(int level, const InternalKey* begin,
                                      const InternalKey* end) {
   std::vector<FileMetaData*> inputs;
-  current_->GetOverlappingInputs(level, begin, end, &inputs);// 将level层与begin,end重合的文件放在 inputs 中
-  if (inputs.empty()) { // 没有重合的文件，直接返回
+  current_->GetOverlappingInputs(
+      level, begin, end,
+      &inputs);          // 将level层与begin,end重合的文件放在 inputs 中
+  if (inputs.empty()) {  // 没有重合的文件，直接返回
     return nullptr;
   }
 

@@ -124,7 +124,7 @@ TEST(SkipTest, Visualize) {
   list.Insert(21);
 
   // 打印 SkipList 结构
-  PrintSkipList(list);
+  list.PrintSkipList();
 }
 
 int RandomHeightTest(Random& rnd) {

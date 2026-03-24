@@ -86,6 +86,52 @@ Status WriteBatch::Iterate(Handler* handler) const {
   }
 }
 
+
+void WriteBatch::HelperPrint() {
+  Slice input(rep_);
+  uint64_t seq_number = SequenceNumber(DecodeFixed64(rep_.data()));
+  uint32_t key_cnt =  DecodeFixed32(rep_.data() + 8);
+  std::cout << "SequenceNumber: " << seq_number << " keyCnt: " << key_cnt << " " << std::endl;
+  if (input.size() < kHeader) {
+    std::fprintf(stderr,"malformed WriteBatch (too small)");
+  }
+  // 待插入的一批数据中 sequence + cnt + [KeyType + keylen + key + vlen + v] +
+  // [KeyType + keylen + key + vlen + v]
+  input.remove_prefix(kHeader);  // 去除 8 字节的sequence + 4 字节count
+  Slice key, value;
+  int found = 0;
+  while (!input.empty()) {  // 如果 input 存有存键值，进入循环
+    found++;
+    char tag = input[0];
+    input.remove_prefix(1);  // 去掉 tag
+    switch (tag) {
+      case kTypeValue:
+        if (GetLengthPrefixedSlice(&input, &key) &&
+            GetLengthPrefixedSlice(&input, &value)) {
+            } else {
+              std::fprintf(stderr,"bad WriteBatch Put");
+            }
+        break;
+      case kTypeDeletion:
+        if (GetLengthPrefixedSlice(&input, &key)) {
+        } else {
+          std::fprintf(stderr,"bad WriteBatch Delete");
+        }
+        break;
+      default:
+        std::fprintf(stderr,"unknown WriteBatch tag");
+    }
+    std::string key_type = tag == kTypeValue ?  "kTypeValue" : "kTypeDeletion";
+    std::cout << key_type << " " << key.size() << " " << key.ToString() << " "<< value.size() << " " << value.ToString() << std::endl;
+  }
+  if (found != WriteBatchInternal::Count(this)) {
+    // found 的个数应该等于 writebatch 中的个数
+    std::fprintf(stderr,"WriteBatch has wrong count");
+  }
+
+  std::cout << std::endl;
+}
+
 int WriteBatchInternal::Count(const WriteBatch* b) {
   // 移动8字节，跳过 sequence,接下来 4 字节存长度
   return DecodeFixed32(b->rep_.data() + 8);

@@ -230,24 +230,33 @@ class TableConstructor : public Constructor {
   ~TableConstructor() override { Reset(); }
   Status FinishImpl(const Options& options, const KVMap& data) override {
     Reset();
+    // 创建内存存储：StringSink 作为内存缓冲区，用于存储构建的 SST 表内容
     StringSink sink;
+    // 构建表：使用 TableBuilder 将键值对数据构建成 SST 表格式
     TableBuilder builder(options, &sink);
 
     for (const auto& kvp : data) {
       builder.Add(kvp.first, kvp.second);
       EXPECT_LEVELDB_OK(builder.status());
     }
+    // 完成表构建，写入索引块、元数据块和文件尾
     Status s = builder.Finish();
     EXPECT_LEVELDB_OK(s);
 
-    // 比较内容大小和索引偏移
+    // 验证 TableBuilder 的文件大小与实际生成的内容大小是否一致
     EXPECT_EQ(sink.contents().size(), builder.FileSize());
 
     // Open the table
+    // StringSource 将内存中的 SST 内容包装成 RandomAccessFile 接口
     source_ = new StringSource(sink.contents());
     Options table_options;
     table_options.comparator = options.comparator;
-    // 检查刚写入的table 数据是否合法
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"Table::Open to check data");
+    /*
+     * Table::Open() 解析 SST 表结构，验证其格式合法性
+     * 这里 source 类型是 StringSource， 继承于 RandomAccessFile，因此可以当作文件看待
+     * 这里将 index_block, filter_block 等写入 table_, 真实的数据没有写入 table_
+     */
     return Table::Open(table_options, source_, sink.contents().size(), &table_);
   }
 
@@ -421,6 +430,7 @@ static const TestArgs kTestArgList[] = {
 };
 static const int kNumTestArgs = sizeof(kTestArgList) / sizeof(kTestArgList[0]);
 
+
 class Harness : public testing::Test {
  public:
   Harness() : constructor_(nullptr) {}
@@ -475,6 +485,17 @@ class Harness : public testing::Test {
   void TestForward() {
     std::vector<std::string> keys;
     KVMap data;
+    /*
+     * constructor_ 在 Init 中初始化为 TableConstructor，MemTableConstructor 等
+     * constructor_ = new TableConstructor(options_.comparator);
+     *     只初始化了父类中的 data_ 变量，即原始 k,v 数据
+     *     子类的变量没有赋值
+     * constructor_ 实例不同 Finish() 行为不同
+     *    TableConstructor 将 kv  数据写到 StringSink(一个基于内存的文件类) 中
+     *    BlockConstructor 用 kv 数据构建一个 Block 的内存区域(data_block,index_block 等)
+     *    MemTableConstructor 将 kv 数据写到 MemTable 中
+     *    DBConstructor 将 kv 数据写到指定的路径中
+    */
     constructor_->Finish(options_, &keys, &data);
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "constructor finished");
     TestForwardScan(keys, data);
@@ -764,6 +785,44 @@ TEST_F(Harness, ZeroRestartPointsInBlock) {
   delete iter;
 }
 
+TEST_F(Harness, TestForwardTableTest) {
+  TestArgs args = {TABLE_TEST, false, 2};
+  Init(args);
+  Random rnd(test::RandomSeed() + 3);
+  Add("abc", "v1");
+  Add("abcd", "v2");
+  Add("abcde", "v3");
+  Add("abcdef", "v4");
+  Add("abcdefg", "v5");
+  TestForward();
+}
+
+TEST_F(Harness, TestForwardDBTest) {
+  TestArgs args = {DB_TEST, false, 2};
+  Init(args);
+  Random rnd(test::RandomSeed() + 3);
+  Add("abc", "v1");
+  Add("abcd", "v2");
+  Add("abcde", "v3");
+  Add("abcdef", "v4");
+  Add("abcdefg", "v5");
+  TestForward();
+}
+
+TEST_F(Harness, SelfArgsTest) {
+  for (int i = 0; i < kNumTestArgs; i++) {
+    std::cout << "i: " << i << std::endl;
+    Init(kTestArgList[i]);
+    Random rnd(test::RandomSeed() + 3);
+    Add("abc", "v1");
+    Add("abcd", "v2");
+    Add("abcde", "v3");
+    Add("abcdef", "v4");
+    Add("abcdefg", "v5");
+    Test(&rnd);
+  }
+}
+
 // Test the empty key
 TEST_F(Harness, SimpleEmptyKey) {
   for (int i = 0; i < kNumTestArgs; i++) {
@@ -779,44 +838,6 @@ TEST_F(Harness, SimpleSingle) {
     Init(kTestArgList[i]);
     Random rnd(test::RandomSeed() + 2);
     Add("abc", "v");
-    Test(&rnd);
-  }
-}
-
-TEST_F(Harness, RestartTableTest) {
-  TestArgs args = {TABLE_TEST, false, 2};
-  Init(args);
-  Random rnd(test::RandomSeed() + 3);
-  Add("abc", "v1");
-  Add("abcd", "v2");
-  Add("abcde", "v3");
-  Add("abcdef", "v4");
-  Add("abcdefg", "v5");
-  Test(&rnd);
-}
-
-TEST_F(Harness, DBTest) {
-  TestArgs args = {DB_TEST, false, 2};
-  Init(args);
-  Random rnd(test::RandomSeed() + 3);
-  Add("abc", "v1");
-  Add("abcd", "v2");
-  Add("abcde", "v3");
-  Add("abcdef", "v4");
-  Add("abcdefg", "v5");
-  Test(&rnd);
-}
-
-TEST_F(Harness, SelfArgsTest) {
-  for (int i = 0; i < kNumTestArgs; i++) {
-    std::cout << "i: " << i << std::endl;
-    Init(kTestArgList[i]);
-    Random rnd(test::RandomSeed() + 3);
-    Add("abc", "v1");
-    Add("abcd", "v2");
-    Add("abcde", "v3");
-    Add("abcdef", "v4");
-    Add("abcdefg", "v5");
     Test(&rnd);
   }
 }
@@ -984,7 +1005,11 @@ TEST(MemTableTest, Visualize) {
   // note 插入第 17 个元素时 skip_list 产生第3层
   batch.Put(std::string("k17"), std::string("v17"));
   ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, memtable).ok());
-  PrintSkipList(memtable->GetTable(), DecodeMemTableKey);
+  batch.HelperPrint();
+
+  const auto& tbl = memtable->GetTable();
+  tbl.PrintSkipList(DecodeMemTableKey);
+  // PrintSkipList(memtable->GetTable(), DecodeMemTableKey);
 }
 
 TEST(MemTableTest, Simple) {
@@ -1009,6 +1034,24 @@ TEST(MemTableTest, Simple) {
 
   delete iter;
   memtable->Unref();
+}
+
+TEST(TableTest, TableWithMetaBlock) {
+  TableConstructor c(BytewiseComparator());
+  c.Add("k01", "hello");
+  c.Add("k02", "hello2");
+  c.Add("k03", std::string(10000, 'x'));
+  c.Add("k04", std::string(200000, 'x'));
+  c.Add("k05", std::string(300000, 'x'));
+  c.Add("k06", "hello3");
+  c.Add("k07", std::string(100000, 'x'));
+  std::vector<std::string> keys;
+  KVMap kvmap;
+  Options options;
+  options.block_size = 1024;
+  options.filter_policy = NewBloomFilterPolicy(10);
+  options.compression = kNoCompression;
+  c.Finish(options, &keys, &kvmap);
 }
 
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {

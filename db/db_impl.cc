@@ -1274,39 +1274,46 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
 }
 
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
-  Writer w(&mutex_);  // 这里没有加锁，只是设置初始化 mutex_ 包含 mutex 和
-                      // condition_variable 变量
-  w.batch = updates;  // 要写的数据
+  // 这里没有加锁，只是设置初始化 mutex_ 包含 mutex 和  condition_variable 变量
+  // 要写的数据
+  Writer w(&mutex_);
+  w.batch = updates;
   w.sync = options.sync;
   w.done = false;
 
-  MutexLock l(&mutex_);    // 构造函数加锁
-  writers_.push_back(&w);  // 加入队列，执行这句后，其他线程也将任务添加到
-                           // writers_,则本线程进入等待 ,生产者不停添加任务
-  while (!w.done && &w != writers_.front()) {  // 队首线程获得锁，其他线程阻塞
-    w.cv.Wait();                               // Wait 期间释放锁
+  // 构造函数加锁
+  MutexLock l(&mutex_);
+  // 加入队列，执行这句后，其他线程也将任务添加到 writers_,
+  // 则本线程进入等待 ,生产者不停添加任务
+  writers_.push_back(&w);
+
+  // 队首线程获得锁，其他线程阻塞 Wait 期间释放锁
+  while (!w.done && &w != writers_.front()) {
+    w.cv.Wait();
   }
-  if (w.done) {  // 其他线程完成了写操作
+  if (w.done) {
+    // 其他线程完成了写操作
     return w.status;
   }
 
   // May temporarily unlock and wait.
   Status status = MakeRoomForWrite(updates == nullptr);
+  // 获得最近的 sequence,一般写一个key, 自增1
   uint64_t last_sequence =
-      versions_->LastSequence();  // 获得最近的 sequence,一般写一个key,自增1
-  Writer* last_writer = &w;       // 到这里的都是队首的要写入的数据
-  // 该线程将任务加入队列，即是生产者，到这里变成消费者
+      versions_->LastSequence();
+  // 到这里的都是队首的要写入的数据
+  Writer* last_writer = &w;
+  // 该线程将任务加入队列，即是生产者，到这里变成消费者, updates=nullptr 没有数据要写入
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
-                                            // updates=nullptr 没有数据要写入
     // 将生产者队列中的所有任务组合成一个大任务
     // 双端队列中一个元素是一个 writebatch,里面包含多个 kv,这里将多个 Writer对象
-    // 组合成一个大的writebatch 注意这里还是持有锁的
-    WriteBatch* write_batch =
-        BuildBatchGroup(&last_writer);  // 获取要写的一组数据
-    WriteBatchInternal::SetSequence(write_batch,
-                                    last_sequence + 1);  // 修改 sequence
-    last_sequence += WriteBatchInternal::Count(
-        write_batch);  // 将最新的sequence 设置为 write_batch 中取出长度信息
+    // 组合成一个大的 writebatch 注意这里还是持有锁的
+    // 获取要写的一组数据
+    WriteBatch* write_batch =BuildBatchGroup(&last_writer);
+    // 修改 sequence
+    WriteBatchInternal::SetSequence(write_batch,last_sequence + 1);
+    // 将最新的sequence 设置为 write_batch 中取出长度信息
+    last_sequence += WriteBatchInternal::Count(write_batch);
 
     // Add to log and apply to memtable.  We can release the lock
     // during this phase since &w is currently responsible for logging
@@ -1315,9 +1322,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     {
       // 释放锁，数据写到 memtable 比较耗时，这里允许其他线程添加任务到双端队列
       mutex_.Unlock();
+      // 添加到日志中备份
       status = log_->AddRecord(
-          WriteBatchInternal::Contents(write_batch));  // 添加到日志中备份
-      bool sync_error = false;  // 如果配置同步选项，指向文件同步操作
+          WriteBatchInternal::Contents(write_batch));
+      // 如果配置同步选项，指向文件同步操作
+      bool sync_error = false;
       if (status.ok() && options.sync) {
         status = logfile_->Sync();
         if (!status.ok()) {
@@ -1326,8 +1335,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
       }
       // 写入日志文件成功，再把数据同步到 memTable
       if (status.ok()) {
-        status = WriteBatchInternal::InsertInto(
-            write_batch, mem_);  // 将 write_batch 写入 memtable
+        // 将 write_batch 写入 memtable
+        status = WriteBatchInternal::InsertInto(write_batch, mem_);
       }
       mutex_.Lock();
       if (sync_error) {
@@ -1358,8 +1367,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     if (ready != &w) {
       ready->status = status;
       ready->done = true;
-      ready->cv
-          .Signal();  // 每个read对象有自己独立的 cv,所以被唤醒的线程是确定的
+      // 每个read对象有自己独立的 cv,所以被唤醒的线程是确定的
+      ready->cv.Signal();
     }
     // 这里的last_writer 可能由 BuildBatchGroup 改变了
     if (ready == last_writer) break;  // 最后一个
@@ -1428,8 +1437,8 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
       // 如果 result 不指向first->batch，则继续合并到 tmp_batch_;
       WriteBatchInternal::Append(result, w->batch);
     }
-    *last_writer =
-        w;  // 每次合并都添加移动last_writer指针，最终last_writer指向最后一个合并的对象
+    // 每次合并都添加移动last_writer指针，最终last_writer指向最后一个合并的对象
+    *last_writer = w;
   }
   return result;
 }
@@ -1440,8 +1449,8 @@ Status DBImpl::MakeRoomForWrite(
     bool force) {  // 确定是否有足够空间,进入这里时 mutex 已锁
   mutex_.AssertHeld();
   assert(!writers_.empty());
-  bool allow_delay =
-      !force;  // 是否允许延迟写入，是就是写入 memtable,不是就写入 immtable
+  // 是否允许延迟写入，是就是写入 memtable,不是就写入 immtable
+  bool allow_delay = !force;
   Status s;
   while (true) {
     if (!bg_error_.ok()) {
@@ -1486,18 +1495,23 @@ Status DBImpl::MakeRoomForWrite(
         versions_->ReuseFileNumber(new_log_number);
         break;
       }
-      delete log_;  // 删除上一个 .log 文件， log_ 对 WritableFile 有一层封装
-      delete logfile_;  // WritableFile 的实例
+      // 删除上一个 .log 文件， log_ 对 WritableFile 有一层封装
+      delete log_;
+      // WritableFile 的实例
+      delete logfile_;
       logfile_ = lfile;
       logfile_number_ = new_log_number;
-      log_ = new log::Writer(
-          lfile);   // 初始化 log::writer ，首先计算 RecordType CRC
-      imm_ = mem_;  // 将 memtable 地址指向 immutable
+      // 初始化 log::writer ，首先计算 RecordType CRC
+      log_ = new log::Writer(lfile);
+      // 将 memtable 地址指向 immutable
+      imm_ = mem_;
       has_imm_.store(true, std::memory_order_release);
       mem_ = new MemTable(internal_comparator_);
       mem_->Ref();
-      force = false;  // Do not force another compaction if have room
-      MaybeScheduleCompaction();  // 根据情况开始 compaction
+      // Do not force another compaction if have room
+      force = false;
+      // 根据情况开始 compaction
+      MaybeScheduleCompaction();
     }
   }
   return s;

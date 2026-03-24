@@ -132,6 +132,13 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     r->pending_index_entry = false;
   }
 
+
+  /*
+   * 过滤器一般是 NewBloomFilterPolicy(10);
+   * filter_block.cc 中有设置 kFilterBase
+   * 每当 filter_block.block_offset 达到 kFilterBase 的整数倍时创建一个新的过滤器
+   * 与 data block 的分块逻辑不一样
+   */
   if (r->filter_block != nullptr) {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "filter block add key {}",
                        key.ToString());

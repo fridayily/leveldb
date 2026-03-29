@@ -202,6 +202,8 @@ void TwoLevelIterator::InitDataBlock() {
       SetDataIterator(iter);
     }
   }
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "end");
+
 }
 
 }  // namespace

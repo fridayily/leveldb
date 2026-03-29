@@ -108,13 +108,15 @@ Options SanitizeOptions(const std::string& dbname,
   ClipToRange(&result.max_file_size, 1 << 20, 1 << 30);
   ClipToRange(&result.block_size, 1 << 10, 4 << 20);
   if (result.info_log == nullptr) {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create log file");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "env->CreateDir {}",dbname);
     // Open a log file in the same directory as the db
     src.env->CreateDir(dbname);  // In case it does not exist  创建数据库名称
     // 将现存的 db_name/LOG 改名为 db_name/LOG.old
     // 然后新建 db_name/LOG
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "env->RenameFile LogFile from {} to {}",InfoLogFileName(dbname),OldInfoLogFileName(dbname));
     src.env->RenameFile(InfoLogFileName(dbname), OldInfoLogFileName(dbname));
     // 创建 LOG 文件
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "env->create LogFile: {}",InfoLogFileName(dbname));
     Status s = src.env->NewLogger(InfoLogFileName(dbname), &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
@@ -142,7 +144,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       options_(SanitizeOptions(
           dbname, &internal_comparator_,  // 参数合法化
           &internal_filter_policy_,
-          raw_options)),  // 创建 数据库文件夹和 LOG 文件，并分配LRU空间
+          raw_options)),  // 创建 数据库文件夹和 LOG 文件，并分配 block_cache LRU 空间
       owns_info_log_(options_.info_log != raw_options.info_log),  // 是否配置log
       // 是否配置 block_cache
       owns_cache_(options_.block_cache != raw_options.block_cache),
@@ -1616,10 +1618,9 @@ DB::~DB() = default;
 
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   *dbptr = nullptr;
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "open db {}",dbname);
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "db impl begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "open db {} begin,and create DBImpl begin",dbname);
   DBImpl* impl = new DBImpl(options, dbname);
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "db impl end");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create DBImpl end");
 
   // DB 是父类，DBImpl 是子类，DB 是 DBImpl 的友元，DB 可以访问 DBImpl
   // 的私有成员 mutex_ 是 DBImpl 的私有成员

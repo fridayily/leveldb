@@ -386,7 +386,7 @@ if(LEVELDB_BUILD_TESTS)
             "util/hash_test.cc"
             "util/logging_test.cc"
 
-            "util/histogram_test.cc"
+            "util/misc_test.cc"
             "util/env_test.cc"
             "util/comparator_test.cc"
     )

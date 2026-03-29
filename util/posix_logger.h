@@ -63,7 +63,7 @@ class PosixLogger final : public Logger {
           (iteration == 0) ? kStackBufferSize : dynamic_buffer_size;
       char* const buffer =
           (iteration == 0) ? stack_buffer : new char[dynamic_buffer_size];
-      // 获取buffer 和 buffer_size,用snprintf 写入 + 年月日时分秒微秒 + 线程id
+      //  用 snprintf 写入 + 年月日时分秒微秒 + 线程id 等数据写到 buffer 中
       // Print the header into the buffer.
       int buffer_offset = std::snprintf(
           buffer, buffer_size, "%04d/%02d/%02d-%02d:%02d:%02d.%06d %s ",

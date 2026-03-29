@@ -379,7 +379,7 @@ class DBConstructor : public Constructor {
 
  private:
   void NewDB() {
-    std::string name = testing::TempDir() + "leveldb/table_testdb";
+    std::string name = testing::TempDir() + "table_testdb";
 
     Options options;
     options.comparator = comparator_;
@@ -556,9 +556,9 @@ class Harness : public testing::Test {
       iter->Next();
     }
     ASSERT_TRUE(!iter->Valid());
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete iter begin");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete TwoLevelIterator begin");
     delete iter;
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete iter end");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete TwoLevelIterator end");
   }
 
   void TestBackwardScan(const std::vector<std::string>& keys,
@@ -832,7 +832,20 @@ TEST_F(Harness, TestForwardDBTest) {
   TestForward();
 }
 
-TEST_F(Harness, SelfArgsTest) {
+TEST_F(Harness, TestRandomDBTest) {
+  TestArgs args = {DB_TEST, false, 2};
+  Init(args);
+  Random rnd(test::RandomSeed() + 3);
+  Add("abc", "v1");
+  Add("abcd", "v2");
+  Add("abcde", "v3");
+  Add("abcdef", "v4");
+  Add("abcdefg", "v5");
+  TestRandom(&rnd);
+}
+
+
+TEST_F(Harness, CustomArgsTest) {
   for (int i = 0; i < kNumTestArgs; i++) {
     std::cout << "i: " << i << std::endl;
     Init(kTestArgList[i]);

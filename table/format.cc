@@ -77,6 +77,8 @@ Status Footer::DecodeFrom(Slice* input) {
  */
 Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
                  const BlockHandle& handle, BlockContents* result) {
+
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "ReadBlock beg");
   result->data = Slice();
   result->cachable = false;
   result->heap_allocated = false;
@@ -117,10 +119,12 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
     }
   }
 
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "decompress data, type {}",
+                   data[n] == kNoCompression ? "kNoCompression" : "kSnappyCompression");
   switch (data[n]) {  // n 是最后一位，标识压缩类型
     case kNoCompression:
-      if (data !=
-          buf) {  // 如果数据在缓存中，data=buf,如果数据在文件中，data!=buf
+      // 如果数据在缓存中，data=buf, 如果数据在文件中，data!=buf
+      if (data != buf) {
         // File implementation gave us pointer to some other data.
         // Use it directly under the assumption that it will be live
         // while the file is open.
@@ -166,6 +170,7 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
       return Status::Corruption("bad block type");
   }
 
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "ReadBlock end");
   return Status::OK();
 }
 

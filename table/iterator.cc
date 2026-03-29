@@ -12,9 +12,11 @@ Iterator::Iterator() {
 }
 
 Iterator::~Iterator() {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "isEmpty: {}",cleanup_head_.IsEmpty());
   if (!cleanup_head_.IsEmpty()) {
     cleanup_head_.Run();
     for (CleanupNode* node = cleanup_head_.next; node != nullptr;) {
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Cleanup node");
       node->Run();
       CleanupNode* next_node = node->next;
       delete node;
@@ -24,7 +26,7 @@ Iterator::~Iterator() {
 }
 // 注册清空函数
 void Iterator::RegisterCleanup(CleanupFunction func, void* arg1, void* arg2) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "RegisterCleanup");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "isEmpty: {}",cleanup_head_.IsEmpty());
   assert(func != nullptr);
   CleanupNode* node;
   if (cleanup_head_.IsEmpty()) {

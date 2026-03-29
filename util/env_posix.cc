@@ -95,15 +95,13 @@ class Limiter {
   // If another resource is available, acquire it and return true.
   // Else return false.
   bool Acquire() {
-    int old_acquires_allowed =
-        acquires_allowed_.fetch_sub(1, std::memory_order_relaxed);
+    int old_acquires_allowed = acquires_allowed_.fetch_sub(1, std::memory_order_relaxed);
 
     // 如果还有可用资源，返回 true
     if (old_acquires_allowed > 0) return true;
 
     // 如果没有可用资源（减1前的值≤0），则将资源数加1恢复，并返回 false
-    int pre_increment_acquires_allowed =
-        acquires_allowed_.fetch_add(1, std::memory_order_relaxed);
+    int pre_increment_acquires_allowed = acquires_allowed_.fetch_add(1, std::memory_order_relaxed);
 
     // Silence compiler warnings about unused arguments when NDEBUG is defined.
     (void)pre_increment_acquires_allowed;
@@ -116,8 +114,7 @@ class Limiter {
   // Release a resource acquired by a previous call to Acquire() that returned
   // true.
   void Release() {
-    int old_acquires_allowed =
-        acquires_allowed_.fetch_add(1, std::memory_order_relaxed);
+    int old_acquires_allowed = acquires_allowed_.fetch_add(1, std::memory_order_relaxed);
 
     // Silence compiler warnings about unused arguments when NDEBUG is defined.
     (void)old_acquires_allowed;
@@ -144,20 +141,18 @@ class Limiter {
 // by the SequentialFile API.  可移植操作系统接口
 class PosixSequentialFile final : public SequentialFile {
  public:
-  PosixSequentialFile(std::string filename, int fd)
-      : fd_(fd), filename_(std::move(filename)) {}
+  PosixSequentialFile(std::string filename, int fd) : fd_(fd), filename_(std::move(filename)) {}
   ~PosixSequentialFile() override { close(fd_); }
 
   Status Read(size_t n, Slice* result, char* scratch) override {
     Status status;
     while (true) {
-      ::ssize_t read_size =
-          ::read(fd_, scratch, n);  // 尝试读取n个字节到scratch
-      if (read_size < 0) {          // Read error.
+      ::ssize_t read_size = ::read(fd_, scratch, n);  // 尝试读取n个字节到scratch
+      if (read_size < 0) {                            // Read error.
         // 通过read读数据，当前fd对应的缓冲区没有数据可读时，进程被阻塞，
         // 此时如果向该进程发送信号，read函数返回-1，errno=EINTR
-        if (errno ==EINTR) {
-          continue;   // Retry
+        if (errno == EINTR) {
+          continue;  // Retry
         }
         status = PosixError(filename_, errno);
         break;
@@ -192,9 +187,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
   // instance, and will be used to determine if .
   PosixRandomAccessFile(std::string filename, int fd, Limiter* fd_limiter)
       : has_permanent_fd_(fd_limiter->Acquire()),  // 是否有足够配额
-        fd_(has_permanent_fd_
-                ? fd
-                : -1),  // 如有可用文件描述符资源，则赋值为fd,否则 -1
+        fd_(has_permanent_fd_ ? fd : -1),          // 如有可用文件描述符资源，则赋值为fd,否则 -1
         fd_limiter_(fd_limiter),
         filename_(std::move(filename)) {
     if (!has_permanent_fd_) {
@@ -214,8 +207,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
   /* Open-on-Read 模式, 是一种延迟文件打开策略，文件不是在创建对象时立即打开，
    * 而是在第一次实际读取时才打开。这有助于在资源受限的环境中节省文件描述符
    */
-  Status Read(uint64_t offset, size_t n, Slice* result,
-              char* scratch) const override {
+  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
     int fd = fd_;
     // 如果没有永久文件描述符则临时打开文件(函数结尾关闭了文件)
     if (!has_permanent_fd_) {
@@ -234,7 +226,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
      *    offset 要读取的位置，以偏移量表示
      *  read 函数是从文件当前位置读取数据
      *  pread 从指定位置读取数据
-    */
+     */
     ssize_t read_size = ::pread(fd, scratch, n, static_cast<off_t>(offset));
     *result = Slice(scratch, (read_size < 0) ? 0 : read_size);
     if (read_size < 0) {
@@ -271,8 +263,7 @@ class PosixMmapReadableFile final : public RandomAccessFile {
   // |mmap_limiter| must outlive this instance. The caller must have already
   // acquired the right to use one mmap region, which will be released when this
   // instance is destroyed.
-  PosixMmapReadableFile(std::string filename, char* mmap_base, size_t length,
-                        Limiter* mmap_limiter)
+  PosixMmapReadableFile(std::string filename, char* mmap_base, size_t length, Limiter* mmap_limiter)
       : mmap_base_(mmap_base),
         length_(length),
         mmap_limiter_(mmap_limiter),
@@ -283,8 +274,7 @@ class PosixMmapReadableFile final : public RandomAccessFile {
     mmap_limiter_->Release();
   }
 
-  Status Read(uint64_t offset, size_t n, Slice* result,
-              char* scratch) const override {
+  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
     if (offset + n > length_) {  // 大于文件总长度，则报错
       *result = Slice();
       // EINVAL linux系统中返回值为负数的错误码，比哦啊是传入参数无效
@@ -329,7 +319,7 @@ class PosixWritableFile final : public WritableFile {
     // min(应该要写的长度,剩余缓冲区长度)
     size_t copy_size = std::min(write_size, kWritableFileBufferSize - pos_);
     std::memcpy(buf_ + pos_, write_data, copy_size);  // buf_是buf开始的地址
-    write_data += copy_size;  // write_data 的指针移动,可能只写一部分
+    write_data += copy_size;                          // write_data 的指针移动,可能只写一部分
     write_size -= copy_size;
     pos_ += copy_size;  // 写指针偏移
     if (write_size == 0) {
@@ -350,16 +340,14 @@ class PosixWritableFile final : public WritableFile {
     // 剩余待写的数据小于缓冲区长度，则写到缓冲区中，否则直接写到文件中
     if (write_size < kWritableFileBufferSize) {
       // 写到缓冲区中
-      SPDLOG_LOGGER_INFO(
-          SpdLogger::Log(),
-          "remain bytes less then kWritableFileBufferSize, write to file");
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(),
+                         "remain bytes less then kWritableFileBufferSize, write to file");
       std::memcpy(buf_, write_data, write_size);
       pos_ = write_size;
       return Status::OK();
     }
-    SPDLOG_LOGGER_INFO(
-        SpdLogger::Log(),
-        "remain bytes larger then kWritableFileBufferSize, write to file");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),
+                       "remain bytes larger then kWritableFileBufferSize, write to file");
     // 直接写入到文件描述符
     return WriteUnbuffered(write_data, write_size);
   }
@@ -507,7 +495,7 @@ class PosixWritableFile final : public WritableFile {
     // The filename component should not contain a path separator. If it does,
     // the splitting was done incorrectly.
     // 从指定索引位置开始查找，之后是文件名，不应该存在 '/'
-    assert(filename.find('/', separator_pos + 1) ==std::string::npos);
+    assert(filename.find('/', separator_pos + 1) == std::string::npos);
 
     return Slice(filename.data() + separator_pos + 1,     // 文件名的开始位置
                  filename.length() - separator_pos - 1);  // 文件名的长度
@@ -554,8 +542,7 @@ int LockOrUnlock(int fd, bool lock) {
 // Instances are thread-safe because they are immutable.
 class PosixFileLock : public FileLock {
  public:
-  PosixFileLock(int fd, std::string filename)
-      : fd_(fd), filename_(std::move(filename)) {}
+  PosixFileLock(int fd, std::string filename) : fd_(fd), filename_(std::move(filename)) {}
 
   int fd() const { return fd_; }
   const std::string& filename() const { return filename_; }
@@ -600,14 +587,12 @@ class PosixEnv : public Env {
   // 如果析构函数被调用, 是不符合预期的, 会向stderr 输出错误信息
   // 并调用 std::abort() 强制终止程序
   ~PosixEnv() override {
-    static const char msg[] =
-        "PosixEnv singleton destroyed. Unsupported behavior!\n";
+    static const char msg[] = "PosixEnv singleton destroyed. Unsupported behavior!\n";
     std::fwrite(msg, 1, sizeof(msg), stderr);
     std::abort();
   }
 
-  Status NewSequentialFile(const std::string& filename,
-                           SequentialFile** result) override {
+  Status NewSequentialFile(const std::string& filename, SequentialFile** result) override {
     int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
     if (fd < 0) {
       *result = nullptr;
@@ -625,8 +610,7 @@ class PosixEnv : public Env {
   //                文件在对象创建时打开,在对象生命周期保持打开,性能最佳,但消耗文件描述符
   //        fd_limiter_ 耗尽, 用 PosixRandomAccessFile 的 open-on-read 模式,
   //                使用时打开,读取完成后关闭, 每次读取有额外开销
-  Status NewRandomAccessFile(const std::string& filename,
-                             RandomAccessFile** result) override {
+  Status NewRandomAccessFile(const std::string& filename, RandomAccessFile** result) override {
     *result = nullptr;
     int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
     if (fd < 0) {
@@ -642,12 +626,10 @@ class PosixEnv : public Env {
     uint64_t file_size;
     Status status = GetFileSize(filename, &file_size);
     if (status.ok()) {
-      void* mmap_base =
-          ::mmap(/*addr=*/nullptr, file_size, PROT_READ, MAP_SHARED, fd, 0);
+      void* mmap_base = ::mmap(/*addr=*/nullptr, file_size, PROT_READ, MAP_SHARED, fd, 0);
       if (mmap_base != MAP_FAILED) {  //
-        *result = new PosixMmapReadableFile(filename,
-                                            reinterpret_cast<char*>(mmap_base),
-                                            file_size, &mmap_limiter_);
+        *result = new PosixMmapReadableFile(filename, reinterpret_cast<char*>(mmap_base), file_size,
+                                            &mmap_limiter_);
       } else {
         status = PosixError(filename, errno);
       }
@@ -667,11 +649,9 @@ class PosixEnv : public Env {
    * 这里的 open 调用本身不创建进程,是一种防御性编程的做法
    *    当前进程将来通过 fork+exec 创建子进程时,文件描述符不会被新程序继承
    * */
-  Status NewWritableFile(const std::string& filename,
-                         WritableFile** result) override {
+  Status NewWritableFile(const std::string& filename, WritableFile** result) override {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create writeable file {}", filename);
-    int fd = ::open(filename.c_str(),
-                    O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+    int fd = ::open(filename.c_str(), O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
     if (fd < 0) {
       *result = nullptr;
       return PosixError(filename, errno);
@@ -681,10 +661,8 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  Status NewAppendableFile(const std::string& filename,
-                           WritableFile** result) override {
-    int fd = ::open(filename.c_str(),
-                    O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
+  Status NewAppendableFile(const std::string& filename, WritableFile** result) override {
+    int fd = ::open(filename.c_str(), O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
     if (fd < 0) {
       *result = nullptr;
       return PosixError(filename, errno);
@@ -698,8 +676,7 @@ class PosixEnv : public Env {
     return ::access(filename.c_str(), F_OK) == 0;  // F_OK 检查文件是否存在
   }
 
-  Status GetChildren(const std::string& directory_path,
-                     std::vector<std::string>* result) override {
+  Status GetChildren(const std::string& directory_path, std::vector<std::string>* result) override {
     result->clear();
     ::DIR* dir = ::opendir(directory_path.c_str());
     if (dir == nullptr) {
@@ -753,9 +730,8 @@ class PosixEnv : public Env {
 
   Status LockFile(const std::string& filename, FileLock** lock) override {
     *lock = nullptr;
-
-    int fd = ::open(filename.c_str(), O_RDWR | O_CREAT | kOpenBaseFlags,
-                    0644);  // 创建 LOCK 文件
+    // 创建 LOCK 文件
+    int fd = ::open(filename.c_str(), O_RDWR | O_CREAT | kOpenBaseFlags, 0644);
     if (fd < 0) {
       return PosixError(filename, errno);
     }
@@ -793,8 +769,7 @@ class PosixEnv : public Env {
   void Schedule(void (*background_work_function)(void* background_work_arg),
                 void* background_work_arg) override;
 
-  void StartThread(void (*thread_main)(void* thread_main_arg),
-                   void* thread_main_arg) override {
+  void StartThread(void (*thread_main)(void* thread_main_arg), void* thread_main_arg) override {
     std::thread new_thread(thread_main, thread_main_arg);
     new_thread.detach();
   }
@@ -807,8 +782,7 @@ class PosixEnv : public Env {
       char buf[100];
       // geteuid 获取有效用户id  effective user id
       // 为不同用户创建独立的测试目录
-      std::snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%d",
-                    static_cast<int>(::geteuid()));
+      std::snprintf(buf, sizeof(buf), "/tmp/leveldbtest-%d", static_cast<int>(::geteuid()));
       *result = buf;
     }
 
@@ -820,9 +794,8 @@ class PosixEnv : public Env {
   // 创建 LOG 文件
   Status NewLogger(const std::string& filename, Logger** result) override {
     // open 一个系统调用函数，用于打开一个文件，并返回文件描述符
-    int fd =
-        ::open(filename.c_str(), O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags,
-               0644);  // 文件所有者有读写权限，其他用户只有读权限
+    // 0644 文件所有者有读写权限，其他用户只有读权限
+    int fd = ::open(filename.c_str(), O_APPEND | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
     if (fd < 0) {
       *result = nullptr;
       return PosixError(filename, errno);
@@ -853,9 +826,7 @@ class PosixEnv : public Env {
  private:
   void BackgroundThreadMain();
   // 后台主线程函数入口点
-  static void BackgroundThreadEntryPoint(PosixEnv* env) {
-    env->BackgroundThreadMain();
-  }
+  static void BackgroundThreadEntryPoint(PosixEnv* env) { env->BackgroundThreadMain(); }
 
   // Stores the work item data in a Schedule() call.
   //
@@ -876,8 +847,7 @@ class PosixEnv : public Env {
       GUARDED_BY(background_work_mutex_);  // 绑定互斥锁 background_work_mutex_
   bool started_background_thread_ GUARDED_BY(background_work_mutex_);
 
-  std::queue<BackgroundWorkItem> background_work_queue_
-      GUARDED_BY(background_work_mutex_);
+  std::queue<BackgroundWorkItem> background_work_queue_ GUARDED_BY(background_work_mutex_);
 
   PosixLockTable locks_;  // Thread-safe.
   Limiter mmap_limiter_;  // Thread-safe.
@@ -916,11 +886,10 @@ PosixEnv::PosixEnv()
     : background_work_cv_(&background_work_mutex_),  // 初始化条件变量
       started_background_thread_(false),             // 默认不能创建消费者线程
       mmap_limiter_(MaxMmaps()),                     // 限制最大的mmap数量
-      fd_limiter_(MaxOpenFiles()) {}  // 限制能打开的最大文件描述符
+      fd_limiter_(MaxOpenFiles()) {}                 // 限制能打开的最大文件描述符
 // 任务调度器，生产者，将要执行的<函数，传入参数>将任务添加到队列中
-void PosixEnv::Schedule(
-    void (*background_work_function)(void* background_work_arg),
-    void* background_work_arg) {
+void PosixEnv::Schedule(void (*background_work_function)(void* background_work_arg),
+                        void* background_work_arg) {
   background_work_mutex_.Lock();
   // 如果没有开启后台线程，则创建后台线程，保证只有一个消费者线程
   // Start the background thread, if we haven't done so already.
@@ -934,9 +903,8 @@ void PosixEnv::Schedule(
   // 发送信号写在这里是因为 BackgroundThreadMain
   // 函数要先获得锁再判断任务队列是否为空 If the queue is empty, the background
   // thread may be waiting for work.
-  if (background_work_queue_
-          .empty()) {              // 如果工作队列不为空，则消费者线程不会等待
-    background_work_cv_.Signal();  // 发送信号时不关心是否有线程在等待
+  if (background_work_queue_.empty()) {  // 如果工作队列不为空，则消费者线程不会等待
+    background_work_cv_.Signal();        // 发送信号时不关心是否有线程在等待
   }
   // 插入待处理任务，生产者
   background_work_queue_.emplace(background_work_function, background_work_arg);
@@ -947,18 +915,15 @@ void PosixEnv::Schedule(
 // 提交任务，执行完成之后就 wait
 void PosixEnv::BackgroundThreadMain() {
   while (true) {
-    background_work_mutex_
-        .Lock();  // 这里会等待上面Schedule 函数background_work_mutex_.Unlock()
-                  // 释放锁，才执行下面代码
+    background_work_mutex_.Lock();  // 这里会等待上面Schedule 函数background_work_mutex_.Unlock()
+                                    // 释放锁，才执行下面代码
     // 这里的共享变量是 background_work_mutex_
     // Wait until there is work to be done. background_work_queue_
     // 保存的是函数和要执行的参数
-    while (
-        background_work_queue_
-            .empty()) {  // 后台工作队列是空的，就一直等待,直到有任务需要处理，这里是一个消费者
+    while (background_work_queue_
+               .empty()) {  // 后台工作队列是空的，就一直等待,直到有任务需要处理，这里是一个消费者
       // wait 后线程进入休眠状态，被放入一个等待队列中，等待信号
-      background_work_cv_
-          .Wait();  // 等待生产者发送信号，此时其他线程可能在写数据
+      background_work_cv_.Wait();  // 等待生产者发送信号，此时其他线程可能在写数据
       // wait 后是先释放锁 background_work_mutex_，此时生产者 Schedule 持有该锁
       // Schedule(生产者) 中发送信号后，锁并没有被释放，消费者还需要 wait
       // Schedule 释放锁后，生产者消费者重新竞争锁
@@ -968,13 +933,11 @@ void PosixEnv::BackgroundThreadMain() {
     }
 
     assert(!background_work_queue_.empty());
-    auto background_work_function =
-        background_work_queue_.front().function;                     // 获取函数
-    void* background_work_arg = background_work_queue_.front().arg;  // 获取参数
-    background_work_queue_.pop();  // 弹出已取的元素
+    auto background_work_function = background_work_queue_.front().function;  // 获取函数
+    void* background_work_arg = background_work_queue_.front().arg;           // 获取参数
+    background_work_queue_.pop();                                             // 弹出已取的元素
 
-    background_work_mutex_
-        .Unlock();  // 解锁后才开始执行任务，生产者队列继续添加任务
+    background_work_mutex_.Unlock();  // 解锁后才开始执行任务，生产者队列继续添加任务
     background_work_function(background_work_arg);
   }
 }
@@ -1000,10 +963,9 @@ class SingletonEnv {
     // NDEBUG 用于控制调试信息的编译
 #if !defined(NDEBUG)
     env_initialized_.store(true, std::memory_order_relaxed);
-#endif  // !defined(NDEBUG)
-    static_assert(
-        sizeof(env_storage_) >= sizeof(EnvType),  // 静态断言，在编译时检查断言
-        "env_storage_ will not fit the Env");
+#endif                                                      // !defined(NDEBUG)
+    static_assert(sizeof(env_storage_) >= sizeof(EnvType),  // 静态断言，在编译时检查断言
+                  "env_storage_ will not fit the Env");
     static_assert(alignof(decltype(env_storage_)) >= alignof(EnvType),
                   "env_storage_ does not meet the Env's alignment needs");
     new (&env_storage_) EnvType();

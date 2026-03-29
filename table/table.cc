@@ -78,7 +78,6 @@ Status Table::Open(const Options& options, RandomAccessFile* file,
   }
   // 读取 index_block
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "read index block");
-
   s = ReadBlock(file, opt, footer.index_handle(), &index_block_contents);
 
   if (s.ok()) {
@@ -163,6 +162,7 @@ void Table::ReadFilter(const Slice& filter_handle_value) {
 Table::~Table() { delete rep_; }
 
 static void DeleteBlock(void* arg, void* ignored) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"delete block");
   delete reinterpret_cast<Block*>(arg);
 }
 
@@ -188,6 +188,8 @@ static void ReleaseBlock(void* arg, void* h) {
 Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
                              const Slice& index_value) {
   // 传入的参数就是 Table* 型的，现在转回去
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "BlockReader beg");
+
   Table* table = reinterpret_cast<Table*>(arg);
   Cache* block_cache = table->rep_->options.block_cache;
   Block* block = nullptr;
@@ -233,7 +235,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
       // ReadBlock 中有对文件的数据的合法性进行校验
       s = ReadBlock(table->rep_->file, options, handle, &contents);
       if (s.ok()) {
-        // 根据content 内容设置 size_，restart_offset_
+        // 根据 content 内容设置 size_，restart_offset_
         block = new Block(contents);
       }
     }
@@ -251,6 +253,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
   } else {
     iter = NewErrorIterator(s);
   }
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "BlockReader end");
   return iter;
 }
 // BlockReader是一个函数（arg，options，index_value）， const_cast<Table*>(this) 就是 arg

@@ -188,15 +188,19 @@ void Histogram::Add(double value) {
    * k[12]= 16
    * 即遍历 12 次
    * 属于 [14,16),这个区间里面的值 +1
+   *
+   * 遍历 kBucketLimit 数组，找到第一个大于 value 的边界值
    * */
   while (b < kNumBuckets - 1 && kBucketLimit[b] <= value) {
     b++;
   }
+  // 增加对应桶的计数
   buckets_[b] += 1.0;
   if (min_ > value) min_ = value;
   if (max_ < value) max_ = value;
   num_++;
   sum_ += value;
+  // 更新平方和
   sum_squares_ += (value * value);
 }
 
@@ -248,8 +252,8 @@ double Histogram::StandardDeviation() const {
 std::string Histogram::ToString() const {
   std::string r;
   char buf[200];
-  std::snprintf(buf, sizeof(buf), "Count: %.0f  Average: %.4f  StdDev: %.2f\n",
-                num_, Average(), StandardDeviation());
+  std::snprintf(buf, sizeof(buf), "Count: %.0f  Average: %.4f  StdDev: %.2f\n", num_, Average(),
+                StandardDeviation());
   r.append(buf);
   std::snprintf(buf, sizeof(buf), "Min: %.4f  Median: %.4f  Max: %.4f\n",
                 (num_ == 0.0 ? 0.0 : min_), Median(), max_);
@@ -265,7 +269,7 @@ std::string Histogram::ToString() const {
                   kBucketLimit[b],                         // right
                   buckets_[b],                             // count
                   mult * buckets_[b],                      // percentage
-                  mult * sum);  // cumulative percentage
+                  mult * sum);                             // cumulative percentage
     r.append(buf);
 
     // Add hash marks based on percentage; 20 marks for 100%.

@@ -20,6 +20,7 @@ class IteratorWrapper {
   IteratorWrapper() : iter_(nullptr), valid_(false) {}
   explicit IteratorWrapper(Iterator* iter) : iter_(nullptr) { Set(iter); }
   ~IteratorWrapper() {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"delete wrapper iter");
     delete iter_;
   }
   Iterator* iter() const { return iter_; }

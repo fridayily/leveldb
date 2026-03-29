@@ -169,7 +169,7 @@ class Constructor {
     for (const auto& kvp : data_) {  // 将key 添加到keys
       keys->push_back(kvp.first);
     }
-    // data 清空后 kvmap 还有数据,因为 *kvmap = data_ 是值拷贝
+    // data 清空后 kvmap 还有数据,因为 *kvmap = data_ 是值拷贝, FinishImpl 最后将写入的数据读取到 data_
     data_.clear();
     Status s = FinishImpl(options, *kvmap);
     ASSERT_TRUE(s.ok()) << s.ToString();
@@ -491,7 +491,7 @@ class Harness : public testing::Test {
      *     只初始化了父类中的 data_ 变量，即原始 k,v 数据
      *     子类的变量没有赋值
      * constructor_ 实例不同 Finish() 行为不同
-     *    TableConstructor 将 kv  数据写到 StringSink(一个基于内存的文件类) 中
+     *    TableConstructor 将 kv 数据写到 StringSink(一个基于内存的文件类) 中
      *    BlockConstructor 用 kv 数据构建一个 Block 的内存区域(data_block,index_block 等)
      *    MemTableConstructor 将 kv 数据写到 MemTable 中
      *    DBConstructor 将 kv 数据写到指定的路径中
@@ -517,11 +517,34 @@ class Harness : public testing::Test {
     TestRandomAccess(rnd, keys, data);
   }
 
+  /*
+   * 对于 TableConstructor，TestForwardScan 执行过程
+   *
+   * 初始化阶段：
+   *   TableConstructor 在 FinishImpl 中已经构建了完整的 SST 表结构
+   *   数据存储在内存中的 StringSink 中
+   *   Table::Open 已经解析了表结构，包括索引块、数据块等
+   *
+   * 迭代器创建：
+   *
+   *  constructor_->NewIterator() 创建两级迭代器 NewTwoLevelIterator;
+   *      创建 index_block 迭代器
+   *      初始化 data_block 迭代器为 null
+   *  iter->SeekToFirst();
+   *      定位到 index_block 第一个 kv，获得 data_block 的 handle
+   *      根据从 index_block 获取的 handle, 构造 data_block 迭代器
+   *  iter->Next()
+   *      移动迭代器到下一个键值对
+   *      内部会检查当前数据块是否还有更多键值对
+   *      如果当前数据块已遍历完毕，会自动加载下一个数据块
+   *      直到遍历完所有数据块
+   *
+   */
   void TestForwardScan(const std::vector<std::string>& keys,
                        const KVMap& data) {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "start, create iter");
     Iterator* iter = constructor_->NewIterator();
-    ASSERT_TRUE(!iter->Valid());  // 迭代器无效才继续执行
+    ASSERT_TRUE(!iter->Valid());  // 上面的 NewIterator 创建了2个迭代器，index_iter 有效，data_iter 无效
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToFirst begin");
 
     iter->SeekToFirst();
@@ -722,7 +745,7 @@ class ModelTestIter : public Iterator {
   KVMap::const_iterator iter_;  // 只允许读取容器中的元素，不能修改
 };
 
-TEST(TestIter, ModelTestIter) {
+TEST(CustomTest, ModelTestIter) {
   KVMap* data = new KVMap();  // 堆上分配
   data->insert({"a", "1"});
   data->insert({"b", "2"});
@@ -1036,7 +1059,7 @@ TEST(MemTableTest, Simple) {
   memtable->Unref();
 }
 
-TEST(TableTest, TableWithMetaBlock) {
+TEST(CustomTableTest, TableWithMetaBlock) {
   TableConstructor c(BytewiseComparator());
   c.Add("k01", "hello");
   c.Add("k02", "hello2");

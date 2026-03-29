@@ -43,7 +43,22 @@ class LEVELDB_EXPORT Cache {
   virtual ~Cache();
 
   // Opaque handle to an entry stored in the cache.
-  struct Handle {}; // 可以作为抽象的基类
+  /*
+   * 不透明指针（Opaque Pointer）设计模式
+   * Cache::Handle 是公共接口中的空结构体，仅作为类型标识
+   * LRUHandle 是内部实现的实际数据结构
+   * 两者都是指针类型，在内存中大小相同
+   *     return reinterpret_cast<Cache::Handle*>(e);
+   *     Unref(reinterpret_cast<LRUHandle*>(handle));
+   *
+   * 设计优势
+   *   接口简洁性：公共接口只暴露简单的 Handle 类型
+   *   实现隐藏：内部复杂的 LRUHandle 结构对用户透明
+   *   灵活性：可以在不改变公共接口的情况下修改内部实现
+   *
+   * note: Cache 中没有任何成员变量
+   */
+  struct Handle {};
 
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.

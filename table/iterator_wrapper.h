@@ -51,6 +51,14 @@ class IteratorWrapper {
     assert(iter_);
     return iter_->status();
   }
+
+  /*
+   * Next()/Prev()/Seek()/SeekToFirst()/SeekToLast()
+   *    调用底层迭代器对应方法后，调用 Update() 更新缓存 valid_, key_
+   * 每次调用 Valid() 和 key() 时，直接返回缓存值，避免通过虚函数表调用底层迭代器的方法
+   * 对于频繁访问这些方法的场景（如遍历），可以显著减少开销
+   * note: 直接调用底层迭代器的 value()（不缓存，因为值可能每次不同）
+   */
   void Next() {
     assert(iter_);
     iter_->Next();
@@ -79,9 +87,11 @@ class IteratorWrapper {
 
  private:
   void Update() {
-    valid_ = iter_->Valid(); // 没有遍历结束就返回true
+    // 没有遍历结束就返回true
+    valid_ = iter_->Valid();
     if (valid_) {
-      key_ = iter_->key(); // 将iter_的Key 赋值给 key_
+      // 将iter_的Key 赋值给 key_
+      key_ = iter_->key();
     }
   }
 

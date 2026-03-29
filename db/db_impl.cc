@@ -1616,7 +1616,7 @@ DB::~DB() = default;
 
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   *dbptr = nullptr;
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "open db");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "open db {}",dbname);
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "db impl begin");
   DBImpl* impl = new DBImpl(options, dbname);
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "db impl end");

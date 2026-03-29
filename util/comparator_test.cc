@@ -24,6 +24,14 @@ TEST_F(FindShortestSeparatorTest,BasicFunctionality) {
   EXPECT_EQ(start,"k02");
 }
 
+TEST_F(FindShortestSeparatorTest,BasicFunctionality2) {
+
+  std::string start = "k01";
+  Slice limit = "k05";
+  comparator->FindShortestSeparator(&start,limit);
+  EXPECT_EQ(start,"k02");
+}
+
 TEST_F(FindShortestSeparatorTest,AdjacentCharacters) {
   std::string start = "k03";
   Slice limit = "k04";

@@ -26,6 +26,9 @@ static const uint32_t kMaskDelta = 0xa282ead8ul;
 // Motivation: it is problematic to compute the CRC of a string that
 // contains embedded CRCs.  Therefore we recommend that CRCs stored
 // somewhere (e.g., in files) should be masked before being stored.
+/*
+ * (crc >> 15) | (crc << 17) 循环右移 15 位
+ */
 inline uint32_t Mask(uint32_t crc) {
   // Rotate right by 15 bits and add a constant.
   return ((crc >> 15) | (crc << 17)) + kMaskDelta;

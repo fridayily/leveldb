@@ -18,6 +18,11 @@
 
 namespace leveldb {
 
+/*
+ * 里面存储一些元信息用来辅助读取 data_block
+ * 如 index_block 存储了索引信息，可以定位到 file 中的 data_block
+ * filter_data 存储了 bloom filter 信息，用来判断 key 是否存在
+ */
 struct Table::Rep {
   ~Rep() {
     delete filter;
@@ -85,8 +90,8 @@ Status Table::Open(const Options& options, RandomAccessFile* file,
     Rep* rep = new Table::Rep;
     rep->options = options;
     rep->file = file;
-    rep->metaindex_handle =
-        footer.metaindex_handle();  // 获取 metaindex_block 的索引
+    // 获取 metaindex_block 的索引
+    rep->metaindex_handle = footer.metaindex_handle();
     rep->index_block = index_block;
     rep->cache_id = (options.block_cache ? options.block_cache->NewId() : 0);
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "cache_id {}", rep->cache_id);
@@ -182,15 +187,16 @@ static void ReleaseBlock(void* arg, void* h) {
 // 里面包含 ldb 文件的id, 如果 cache 中找不到，则在ldb文件中读取对应的data_block
 Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
                              const Slice& index_value) {
-  Table* table =
-      reinterpret_cast<Table*>(arg);  // 传入的参数就是Table*型的，现在转回去
+  // 传入的参数就是 Table* 型的，现在转回去
+  Table* table = reinterpret_cast<Table*>(arg);
   Cache* block_cache = table->rep_->options.block_cache;
   Block* block = nullptr;
   Cache::Handle* cache_handle = nullptr;
 
   BlockHandle handle;
-  Slice input = index_value;             // data_block的 offset size 信息
-  Status s = handle.DecodeFrom(&input);  // 解析出 offset 和 size
+  Slice input = index_value;
+  // data_block的 offset size 信息，解析出 offset 和 size
+  Status s = handle.DecodeFrom(&input);
   // We intentionally allow extra stuff in index_value so that we
   // can add more features in the future.
 
@@ -200,10 +206,11 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
       char cache_key_buffer[16];
       EncodeFixed64(cache_key_buffer, table->rep_->cache_id);
       EncodeFixed64(cache_key_buffer + 8, handle.offset());
+      // 将 cache_id 和 offset 封装成一个 key
       Slice key(cache_key_buffer, sizeof(cache_key_buffer));
-      // 读取某个数据块时，先检查数据块是否在block_cache中
-      cache_handle =
-          block_cache->Lookup(key);  // 这里的key由cache_id 和 offset 组成
+      // 读取某个数据块时，先检查数据块是否在 block_cache 中
+      // 这里的key由cache_id 和 offset 组成
+      cache_handle = block_cache->Lookup(key);
       // 如果在 block_cache 找到，直接从缓存块中取得数据块
       if (cache_handle != nullptr) {
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
@@ -246,10 +253,11 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
   }
   return iter;
 }
-// BlockReader是一个函数（arg，options，index_value），
+// BlockReader是一个函数（arg，options，index_value）， const_cast<Table*>(this) 就是 arg
 Iterator* Table::NewIterator(const ReadOptions& options) const {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create NewTwoLevelIterator of table");
-  return NewTwoLevelIterator(  // 二级迭代器，传入的参数是迭代器，返回的是迭代器
+  return NewTwoLevelIterator(
+      // 二级迭代器，传入的参数是迭代器，返回的是迭代器
       rep_->index_block->NewIterator(rep_->options.comparator),
       &Table::BlockReader, const_cast<Table*>(this), options);
 }
@@ -257,14 +265,20 @@ Iterator* Table::NewIterator(const ReadOptions& options) const {
 /*
  * 用于从 SST 表中根据给定的 key 查找对应的 value
  * 调用链  DBImpl::Get → Version::Get → TableCache::Get → Table::InternalGet
- * 即              DBImpl::Get
- *      --------→ current->Get
- *      --------→ state->vset->table_cache_->Get
- *      --------→ Table::InternalGet
  *
- * 在Version::Get中，创建了一个Saver结构体，并将SaveValue作为回调函数传递给
+ * 即              db_->Get(options, k, &result)
+ *      --------→ current->Get(options, lkey, value, &stats)
+ *      --------→ state->vset->table_cache_->Get(*state->options, f->number,
+                                                f->file_size, state->ikey,
+                                                &state->saver, SaveValue)
+ *      --------→ t->InternalGet(options, k, arg,handle_result)
+ *
+ * 在 Version::Get 中，创建了一个 Saver 结构体，并将 SaveValue 作为回调函数传递给
  * TableCache::Get，最终传递给Table::InternalGet。
  * 当Table::InternalGet找到匹配的键值对时，就会调用这个回调函数来处理结果。
+ *
+ * note: 这里的 handle_result 是 SaveValue
+ *       arg 是 State::Saver, 里面存储要查找的 key, 定义的比较器，和用来保存值的指针
  */
 Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,
                           void (*handle_result)(void*, const Slice&,
@@ -272,7 +286,12 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,
   Status s;
   // 创建索引块（index block）的迭代器
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
-  // 定位到第一个大于等于k的位置
+  /*
+   * 定位到第一个大于等于 k 的位置
+   * data_block 中如果存的是 a1,a2,a3, 对应的 index_block 存的是 b (b 比 a3 大)
+   * 假设要查找 a3, itter->Seek(a3) 会返回 b 所在 index_block 的 handle
+   * 根据这个 handle 可以定位到 a3 所处的 data_block
+   */
   iiter->Seek(k);
   if (iiter->Valid()) {
     // 取出index 迭代器的 offset size
@@ -284,12 +303,17 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,
       // Not found 执行这里说明在 bloo 过滤器中没有找到，直接返回
     } else {
       // 没有设置过滤器或者 bloom 过滤器中查到
-      // 根据 index_block 得到的迭代器值获得data_block迭代器
+      // 根据 index_block 得到的迭代器值获得 data_block 迭代器
       Iterator* block_iter = BlockReader(this, options, iiter->value());
-      // 定位到k 的位置
+      // 定位到 k 的位置
       block_iter->Seek(k);
       if (block_iter->Valid()) {
         // 如果找到匹配的 key-value，则调用回调函数 handle_result 处理结果
+        // 调用 SaveValue(State::Saver,key,value)
+        // 如果 arg 的 key 和 block_iter->key() 相同
+        // 则设置 tate::Saver::SaverState 为 kFound 和 tate::Saver::value
+        // note: InternalGet 这个函数自身没有返回查找的值，
+        //      而是修改 Version::Get 中的 value
         (*handle_result)(arg, block_iter->key(), block_iter->value());
       }
       s = block_iter->status();

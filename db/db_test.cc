@@ -35,9 +35,8 @@ static std::string RandomString(Random* rnd, int len) {
 }
 
 static std::string RandomKey(Random* rnd) {
-  int len =
-      (rnd->OneIn(3) ? 1  // Short sometimes to encourage collisions
-                     : (rnd->OneIn(100) ? rnd->Skewed(10) : rnd->Uniform(10)));
+  int len = (rnd->OneIn(3) ? 1  // Short sometimes to encourage collisions
+                           : (rnd->OneIn(100) ? rnd->Skewed(10) : rnd->Uniform(10)));
   return test::RandomKey(rnd, len);
 }
 
@@ -64,9 +63,7 @@ class AtomicCounter {
   int count_ GUARDED_BY(mu_);
 };
 
-void DelayMilliseconds(int millis) {
-  Env::Default()->SleepForMicroseconds(millis * 1000);
-}
+void DelayMilliseconds(int millis) { Env::Default()->SleepForMicroseconds(millis * 1000); }
 }  // namespace
 
 // Test Env to override default Env behavior for testing.
@@ -76,8 +73,7 @@ class TestEnv : public EnvWrapper {
 
   void SetIgnoreDotFiles(bool ignored) { ignore_dot_files_ = ignored; }
 
-  Status GetChildren(const std::string& dir,
-                     std::vector<std::string>* result) override {
+  Status GetChildren(const std::string& dir, std::vector<std::string>* result) override {
     Status s = target()->GetChildren(dir, result);
     if (!s.ok() || !ignore_dot_files_) {
       return s;
@@ -123,8 +119,7 @@ class SpecialEnv : public EnvWrapper {
   bool count_random_reads_;
   AtomicCounter random_read_counter_;
 
-  explicit SpecialEnv(
-      Env* base)  //  explicit 创建对象的时候不能进行隐式类型转换
+  explicit SpecialEnv(Env* base)  //  explicit 创建对象的时候不能进行隐式类型转换
       : EnvWrapper(base),
         delay_data_sync_(false),
         data_sync_error_(false),
@@ -196,8 +191,7 @@ class SpecialEnv : public EnvWrapper {
     Status s = target()->NewWritableFile(f, r);
     if (s.ok()) {
       // 判断 .ldb 是否在f中，返回第一个 .ldb 出现之后的字符串
-      if (strstr(f.c_str(), ".ldb") != nullptr ||
-          strstr(f.c_str(), ".log") != nullptr) {
+      if (strstr(f.c_str(), ".ldb") != nullptr || strstr(f.c_str(), ".log") != nullptr) {
         *r = new DataFile(this, *r);
       } else if (strstr(f.c_str(), "MANIFEST") != nullptr) {
         *r = new ManifestFile(this, *r);
@@ -216,8 +210,7 @@ class SpecialEnv : public EnvWrapper {
       CountingFile(RandomAccessFile* target, AtomicCounter* counter)
           : target_(target), counter_(counter) {}
       ~CountingFile() override { delete target_; }
-      Status Read(uint64_t offset, size_t n, Slice* result,
-                  char* scratch) const override {
+      Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const override {
         counter_->Increment();
         return target_->Read(offset, n, result, scratch);
       }
@@ -263,9 +256,11 @@ class DBTest : public testing::Test {
 
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
-  bool ChangeOptions() {  // 改变选项，进行下一个测试
+  // 改变选项，进行下一个测试
+  bool ChangeOptions() {
     option_config_++;
-    if (option_config_ >= kEnd) {  // 结束测试
+    if (option_config_ >= kEnd) {
+      // 结束测试
       return false;
     } else {
       DestroyAndReopen();
@@ -295,9 +290,7 @@ class DBTest : public testing::Test {
 
   DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
 
-  void Reopen(Options* options = nullptr) {
-    ASSERT_LEVELDB_OK(TryReopen(options));
-  }
+  void Reopen(Options* options = nullptr) { ASSERT_LEVELDB_OK(TryReopen(options)); }
 
   void Close() {
     delete db_;
@@ -326,9 +319,7 @@ class DBTest : public testing::Test {
     return DB::Open(opts, dbname_, &db_);
   }
   // Put 的执行同时另外一个线程可能在执行 compaction
-  Status Put(const std::string& k, const std::string& v) {
-    return db_->Put(WriteOptions(), k, v);
-  }
+  Status Put(const std::string& k, const std::string& v) { return db_->Put(WriteOptions(), k, v); }
 
   Status Delete(const std::string& k) { return db_->Delete(WriteOptions(), k); }
 
@@ -416,8 +407,7 @@ class DBTest : public testing::Test {
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    EXPECT_TRUE(db_->GetProperty(
-        "leveldb.num-files-at-level" + NumberToString(level), &property));
+    EXPECT_TRUE(db_->GetProperty("leveldb.num-files-at-level" + NumberToString(level), &property));
     return std::stoi(property);
   }
 
@@ -459,14 +449,11 @@ class DBTest : public testing::Test {
     return size;
   }
 
-  void Compact(const Slice& start, const Slice& limit) {
-    db_->CompactRange(&start, &limit);
-  }
+  void Compact(const Slice& start, const Slice& limit) { db_->CompactRange(&start, &limit); }
 
   // Do n memtable compactions, each of which produces an sstable
   // covering the range [small_key,large_key].
-  void MakeTables(int n, const std::string& small_key,
-                  const std::string& large_key) {
+  void MakeTables(int n, const std::string& small_key, const std::string& large_key) {
     for (int i = 0; i < n; i++) {
       Put(small_key, "begin");
       Put(large_key, "end");
@@ -482,9 +469,8 @@ class DBTest : public testing::Test {
 
   void DumpFileCounts(const char* label) {
     std::fprintf(stderr, "---\n%s:\n", label);
-    std::fprintf(
-        stderr, "maxoverlap: %lld\n",
-        static_cast<long long>(dbfull()->TEST_MaxNextLevelOverlappingBytes()));
+    std::fprintf(stderr, "maxoverlap: %lld\n",
+                 static_cast<long long>(dbfull()->TEST_MaxNextLevelOverlappingBytes()));
     for (int level = 0; level < config::kNumLevels; level++) {
       int num = NumTableFilesAtLevel(level);
       if (num > 0) {
@@ -558,20 +544,57 @@ TEST(RandTest, Uniform) {
   }
 }
 
+TEST(CustomTest, BasicWriteRead) {
+  Options options;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;  // 禁用压缩，加快测试速度
 
+  // 数据库路径
+  std::string dbname = "/tmp/db_test";
 
-TEST_F(DBTest, MySelfSingle) {
-  long N = 200;
-  for (long i = 0; i < N; ++i) {
-    std::string key = std::string("key") + std::to_string(i);
-    std::string val = std::string(1000, 'v') + std::to_string(i);
-    Put(key, val);
+  // 打开数据库
+  DB* db = nullptr;
+  Status status = DB::Open(options, dbname, &db);
+  if (!status.ok()) {
+    std::cerr << "Failed to open database: " << status.ToString() << std::endl;
+    return;
   }
-  std::string val;
-  val = Get("key0");
-  std::cout << "key0: val " << val << std::endl;
-}
 
+  try {
+    // 插入数据
+    long N = 200000;
+    for (long i = 0; i < N; ++i) {
+      std::string key = std::string("key") + std::to_string(i);
+      std::string val = std::string(1000, 'v') + std::to_string(i);
+      status = db->Put(WriteOptions(), key, val);
+      if (!status.ok()) {
+        std::cerr << "Failed to put key " << key << ": " << status.ToString() << std::endl;
+        break;
+      }
+    }
+
+    // 读取数据
+    std::string val;
+    status = db->Get(ReadOptions(), "key0", &val);
+    if (status.ok()) {
+      std::cout << "key0: val " << val << std::endl;
+    } else if (status.IsNotFound()) {
+      std::cout << "key0 not found" << std::endl;
+    } else {
+      std::cerr << "Error getting key0: " << status.ToString() << std::endl;
+    }
+
+  } catch (const std::exception& e) {
+    std::cerr << "Exception: " << e.what() << std::endl;
+  }
+  // for (int i=0;i< 10;i++) {
+  //   std::cout << "will sleep " << 10 << " s" << std::endl;
+  //   std::this_thread::sleep_for(std::chrono::seconds(30));
+  // }
+
+  // 关闭数据库
+  delete db;
+}
 
 TEST_F(DBTest, MySelfBatch) {
   WriteBatch batch;
@@ -605,8 +628,6 @@ TEST_F(DBTest, MySelfBatch) {
   }
   delete iterator;
 }
-
-
 
 TEST_F(DBTest, Empty) {
   do {
@@ -682,7 +703,6 @@ TEST_F(DBTest, DBTest_MySelfSingle_TestFilterReadWrite) {
 
   std::string s1 = Get("abcd");
 }
-
 
 TEST_F(DBTest, ReadWrite) {
   do {
@@ -765,8 +785,7 @@ TEST_F(DBTest, SelfGetFromVersions) {
   Put("abcde", "v3");
   Put("abcdef", "v4");
   Put("abcdefg", "v5");
-  dbfull()
-      ->TEST_CompactMemTable();  // 调用dbfull()函数返回DBImpl对象，然后调用TEST_CompactMemTable
+  dbfull()->TEST_CompactMemTable();  // 调用dbfull()函数返回DBImpl对象，然后调用TEST_CompactMemTable
   std::string v = Get("abc");
   std::cout << "v: " << v << std::endl;
 }
@@ -831,8 +850,8 @@ TEST_F(DBTest, CompactFiles) {
   dbfull()->TEST_CompactMemTable();
 
   std::vector<std::string> filenames;
-  leveldb::Status status = env_->GetChildren(
-      dbname_, &filenames);  // 将文件夹下的文件名都存到filenames中
+  leveldb::Status status =
+      env_->GetChildren(dbname_, &filenames);  // 将文件夹下的文件名都存到filenames中
   if (!status.ok()) {
     return;
   }
@@ -1372,12 +1391,10 @@ TEST_F(DBTest, RecoverDuringMemtableCompaction) {
     Reopen(&options);
 
     // Trigger a long memtable compaction and reopen the database during it
-    ASSERT_LEVELDB_OK(Put("foo", "v1"));  // Goes to 1st log file
-    ASSERT_LEVELDB_OK(
-        Put("big1", std::string(10000000, 'x')));  // Fills memtable
-    ASSERT_LEVELDB_OK(
-        Put("big2", std::string(1000, 'y')));  // Triggers compaction
-    ASSERT_LEVELDB_OK(Put("bar", "v2"));       // Goes to new log file
+    ASSERT_LEVELDB_OK(Put("foo", "v1"));                         // Goes to 1st log file
+    ASSERT_LEVELDB_OK(Put("big1", std::string(10000000, 'x')));  // Fills memtable
+    ASSERT_LEVELDB_OK(Put("big2", std::string(1000, 'y')));      // Triggers compaction
+    ASSERT_LEVELDB_OK(Put("bar", "v2"));                         // Goes to new log file
 
     Reopen(&options);
     ASSERT_EQ("v1", Get("foo"));
@@ -1530,9 +1547,8 @@ TEST_F(DBTest, SparseMerge) {
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
   bool result = (val >= low) && (val <= high);
   if (!result) {
-    std::fprintf(stderr, "Value %llu is not in range [%llu, %llu]\n",
-                 (unsigned long long)(val), (unsigned long long)(low),
-                 (unsigned long long)(high));
+    std::fprintf(stderr, "Value %llu is not in range [%llu, %llu]\n", (unsigned long long)(val),
+                 (unsigned long long)(low), (unsigned long long)(high));
   }
   return result;
 }
@@ -1576,8 +1592,7 @@ TEST_F(DBTest, ApproximateSizes) {
       for (int compact_start = 0; compact_start < N; compact_start += 10) {
         for (int i = 0; i < N; i += 10) {
           ASSERT_TRUE(Between(Size("", Key(i)), S1 * i, S2 * i));
-          ASSERT_TRUE(Between(Size("", Key(i) + ".suffix"), S1 * (i + 1),
-                              S2 * (i + 1)));
+          ASSERT_TRUE(Between(Size("", Key(i) + ".suffix"), S1 * (i + 1), S2 * (i + 1)));
           ASSERT_TRUE(Between(Size(Key(i), Key(i + 10)), S1 * 10, S2 * 10));
         }
         ASSERT_TRUE(Between(Size("", Key(50)), S1 * 50, S2 * 50));
@@ -1648,8 +1663,7 @@ TEST_F(DBTest, IteratorPinsRef) {
   // Write to force compactions
   Put("foo", "newvalue1");
   for (int i = 0; i < 100; i++) {
-    ASSERT_LEVELDB_OK(
-        Put(Key(i), Key(i) + std::string(100000, 'v')));  // 100K values
+    ASSERT_LEVELDB_OK(Put(Key(i), Key(i) + std::string(100000, 'v')));  // 100K values
   }
   Put("foo", "newvalue2");
 
@@ -1890,17 +1904,14 @@ TEST_F(DBTest, ComparatorCheck) {
   new_options.comparator = &cmp;
   Status s = TryReopen(&new_options);
   ASSERT_TRUE(!s.ok());
-  ASSERT_TRUE(s.ToString().find("comparator") != std::string::npos)
-      << s.ToString();
+  ASSERT_TRUE(s.ToString().find("comparator") != std::string::npos) << s.ToString();
 }
 
 TEST_F(DBTest, CustomComparator) {
   class NumberComparator : public Comparator {
    public:
     const char* Name() const override { return "test.NumberComparator"; }
-    int Compare(const Slice& a, const Slice& b) const override {
-      return ToNumber(a) - ToNumber(b);
-    }
+    int Compare(const Slice& a, const Slice& b) const override { return ToNumber(a) - ToNumber(b); }
     void FindShortestSeparator(std::string* s, const Slice& l) const override {
       ToNumber(*s);  // Check format
       ToNumber(l);   // Check format
@@ -1912,12 +1923,10 @@ TEST_F(DBTest, CustomComparator) {
    private:
     static int ToNumber(const Slice& x) {
       // Check that there are no extra characters.
-      EXPECT_TRUE(x.size() >= 2 && x[0] == '[' && x[x.size() - 1] == ']')
-          << EscapeString(x);
+      EXPECT_TRUE(x.size() >= 2 && x[0] == '[' && x[x.size() - 1] == ']') << EscapeString(x);
       int val;
       char ignored;
-      EXPECT_TRUE(sscanf(x.ToString().c_str(), "[%i]%c", &val, &ignored) == 1)
-          << EscapeString(x);
+      EXPECT_TRUE(sscanf(x.ToString().c_str(), "[%i]%c", &val, &ignored) == 1) << EscapeString(x);
       return val;
     }
   };
@@ -2164,8 +2173,8 @@ TEST_F(DBTest, ManifestWriteError) {
   // We iterate twice.  In the second iteration, everything is the
   // same except the log record never makes it to the MANIFEST file.
   for (int iter = 0; iter < 2; iter++) {
-    std::atomic<bool>* error_type = (iter == 0) ? &env_->manifest_sync_error_
-                                                : &env_->manifest_write_error_;
+    std::atomic<bool>* error_type =
+        (iter == 0) ? &env_->manifest_sync_error_ : &env_->manifest_write_error_;
 
     // Insert foo=>bar mapping
     Options options = CurrentOptions();
@@ -2323,8 +2332,7 @@ static void MTThreadBody(void* arg) {
     if (rnd.OneIn(2)) {
       // Write values of the form <key, my id, counter>.
       // We add some padding for force compactions.
-      std::snprintf(valbuf, sizeof(valbuf), "%d.%d.%-1000d", key, id,
-                    static_cast<int>(counter));
+      std::snprintf(valbuf, sizeof(valbuf), "%d.%d.%-1000d", key, id, static_cast<int>(counter));
       ASSERT_LEVELDB_OK(db->Put(WriteOptions(), Slice(keybuf), Slice(valbuf)));
     } else {
       // Read a value and verify that it matches the pattern written above.
@@ -2398,11 +2406,8 @@ class ModelDB : public DB {
   Status Put(const WriteOptions& o, const Slice& k, const Slice& v) override {
     return DB::Put(o, k, v);
   }
-  Status Delete(const WriteOptions& o, const Slice& key) override {
-    return DB::Delete(o, key);
-  }
-  Status Get(const ReadOptions& options, const Slice& key,
-             std::string* value) override {
+  Status Delete(const WriteOptions& o, const Slice& key) override { return DB::Delete(o, key); }
+  Status Get(const ReadOptions& options, const Slice& key, std::string* value) override {
     assert(false);  // Not implemented
     return Status::NotFound(key);
   }
@@ -2440,9 +2445,7 @@ class ModelDB : public DB {
     return batch->Iterate(&handler);
   }
 
-  bool GetProperty(const Slice& property, std::string* value) override {
-    return false;
-  }
+  bool GetProperty(const Slice& property, std::string* value) override { return false; }
   void GetApproximateSizes(const Range* r, int n, uint64_t* sizes) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
@@ -2453,8 +2456,7 @@ class ModelDB : public DB {
  private:
   class ModelIter : public Iterator {
    public:
-    ModelIter(const KVMap* map, bool owned)
-        : map_(map), owned_(owned), iter_(map_->end()) {}
+    ModelIter(const KVMap* map, bool owned) : map_(map), owned_(owned), iter_(map_->end()) {}
     ~ModelIter() override {
       if (owned_) delete map_;
     }
@@ -2467,9 +2469,7 @@ class ModelDB : public DB {
         iter_ = map_->find(map_->rbegin()->first);
       }
     }
-    void Seek(const Slice& k) override {
-      iter_ = map_->lower_bound(k.ToString());
-    }
+    void Seek(const Slice& k) override { iter_ = map_->lower_bound(k.ToString()); }
     void Next() override { ++iter_; }
     void Prev() override { --iter_; }
     Slice key() const override { return iter_->first; }
@@ -2485,8 +2485,7 @@ class ModelDB : public DB {
   KVMap map_;
 };
 
-static bool CompareIterators(int step, DB* model, DB* db,
-                             const Snapshot* model_snap,
+static bool CompareIterators(int step, DB* model, DB* db, const Snapshot* model_snap,
                              const Snapshot* db_snap) {
   ReadOptions options;
   options.snapshot = model_snap;
@@ -2498,22 +2497,19 @@ static bool CompareIterators(int step, DB* model, DB* db,
   std::vector<std::string> seek_keys;
   // Compare equality of all elements using Next(). Save some of the keys for
   // comparing Seek equality.
-  for (miter->SeekToFirst(), dbiter->SeekToFirst();
-       ok && miter->Valid() && dbiter->Valid(); miter->Next(), dbiter->Next()) {
+  for (miter->SeekToFirst(), dbiter->SeekToFirst(); ok && miter->Valid() && dbiter->Valid();
+       miter->Next(), dbiter->Next()) {
     count++;
     if (miter->key().compare(dbiter->key()) != 0) {
       std::fprintf(stderr, "step %d: Key mismatch: '%s' vs. '%s'\n", step,
-                   EscapeString(miter->key()).c_str(),
-                   EscapeString(dbiter->key()).c_str());
+                   EscapeString(miter->key()).c_str(), EscapeString(dbiter->key()).c_str());
       ok = false;
       break;
     }
 
     if (miter->value().compare(dbiter->value()) != 0) {
-      std::fprintf(stderr,
-                   "step %d: Value mismatch for key '%s': '%s' vs. '%s'\n",
-                   step, EscapeString(miter->key()).c_str(),
-                   EscapeString(miter->value()).c_str(),
+      std::fprintf(stderr, "step %d: Value mismatch for key '%s': '%s' vs. '%s'\n", step,
+                   EscapeString(miter->key()).c_str(), EscapeString(miter->value()).c_str(),
                    EscapeString(miter->value()).c_str());
       ok = false;
       break;
@@ -2526,38 +2522,33 @@ static bool CompareIterators(int step, DB* model, DB* db,
 
   if (ok) {
     if (miter->Valid() != dbiter->Valid()) {
-      std::fprintf(stderr, "step %d: Mismatch at end of iterators: %d vs. %d\n",
-                   step, miter->Valid(), dbiter->Valid());
+      std::fprintf(stderr, "step %d: Mismatch at end of iterators: %d vs. %d\n", step,
+                   miter->Valid(), dbiter->Valid());
       ok = false;
     }
   }
 
   if (ok) {
     // Validate iterator equality when performing seeks.
-    for (auto kiter = seek_keys.begin(); ok && kiter != seek_keys.end();
-         ++kiter) {
+    for (auto kiter = seek_keys.begin(); ok && kiter != seek_keys.end(); ++kiter) {
       miter->Seek(*kiter);
       dbiter->Seek(*kiter);
       if (!miter->Valid() || !dbiter->Valid()) {
-        std::fprintf(stderr, "step %d: Seek iterators invalid: %d vs. %d\n",
-                     step, miter->Valid(), dbiter->Valid());
+        std::fprintf(stderr, "step %d: Seek iterators invalid: %d vs. %d\n", step, miter->Valid(),
+                     dbiter->Valid());
         ok = false;
       }
       if (miter->key().compare(dbiter->key()) != 0) {
-        std::fprintf(stderr, "step %d: Seek key mismatch: '%s' vs. '%s'\n",
-                     step, EscapeString(miter->key()).c_str(),
-                     EscapeString(dbiter->key()).c_str());
+        std::fprintf(stderr, "step %d: Seek key mismatch: '%s' vs. '%s'\n", step,
+                     EscapeString(miter->key()).c_str(), EscapeString(dbiter->key()).c_str());
         ok = false;
         break;
       }
 
       if (miter->value().compare(dbiter->value()) != 0) {
-        std::fprintf(
-            stderr,
-            "step %d: Seek value mismatch for key '%s': '%s' vs. '%s'\n", step,
-            EscapeString(miter->key()).c_str(),
-            EscapeString(miter->value()).c_str(),
-            EscapeString(miter->value()).c_str());
+        std::fprintf(stderr, "step %d: Seek value mismatch for key '%s': '%s' vs. '%s'\n", step,
+                     EscapeString(miter->key()).c_str(), EscapeString(miter->value()).c_str(),
+                     EscapeString(miter->value()).c_str());
         ok = false;
         break;
       }
@@ -2586,8 +2577,7 @@ TEST_F(DBTest, Randomized) {
       int p = rnd.Uniform(100);
       if (p < 45) {  // Put
         k = RandomKey(&rnd);
-        v = RandomString(
-            &rnd, rnd.OneIn(20) ? 100 + rnd.Uniform(100) : rnd.Uniform(8));
+        v = RandomString(&rnd, rnd.OneIn(20) ? 100 + rnd.Uniform(100) : rnd.Uniform(8));
         ASSERT_LEVELDB_OK(model.Put(WriteOptions(), k, v));
         ASSERT_LEVELDB_OK(db_->Put(WriteOptions(), k, v));
 

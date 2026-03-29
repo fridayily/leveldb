@@ -74,9 +74,8 @@ struct LRUHandle {
   bool in_cache;  // Whether entry is in the cache.
   uint32_t refs;  // References, including cache reference, if present.
   uint32_t hash;  // Hash of key(); used for fast sharding and comparisons
-  char key_data
-      [1];  // Beginning of key  柔性数组,[0] [1]
-            // 相同效果,适合制作动态数组,直接把结构体和缓冲区数据放在一起,这样便于分配和释放内存
+  char key_data [1];  // Beginning of key  柔性数组,[0] [1]
+  // 相同效果,适合制作动态数组,直接把结构体和缓冲区数据放在一起,这样便于分配和释放内存
 
   Slice key() const {
     // next is only equal to this if the LRU handle is the list head of an
@@ -250,14 +249,16 @@ class HandleTable {
     while (new_length < elems_) {
       new_length *= 2;  // 扩容2倍
     }
-    LRUHandle** new_list =
-        new LRUHandle*[new_length];  // 新建数组,容量是以前2倍,里面存的是
-                                     // LRUHandle 型的指针
-    memset(new_list, 0, sizeof(new_list[0]) * new_length);  // 将数组初始化为0
+    // 新建数组,容量是以前2倍,里面存的是LRUHandle 型的指针
+    LRUHandle** new_list = new LRUHandle*[new_length];
+    // 将数组初始化为0
+    memset(new_list, 0, sizeof(new_list[0]) * new_length);
     uint32_t count = 0;
-    for (uint32_t i = 0; i < length_; i++) {  // 这里length_ 还是扩容前的length
-      LRUHandle* h = list_[i];                // 将list_ 的首地址放到新数组  h
-                                // 存的一个指针,指向一个 LRUHandle 对象
+    // 这里length_ 还是扩容前的 length 将list_ 的首地址放到新数组 h 存的一个指针,
+    // 指向一个 LRUHandle 对象
+    for (uint32_t i = 0; i < length_; i++) {
+      LRUHandle* h = list_[i];
+
       while (h != nullptr) {
         // 遍历list[i]中的单向链表(next_hash指针组成),将里面所有元素重新
         //  hash 后放入新的数组中
@@ -275,21 +276,22 @@ class HandleTable {
         //  其中 list_[0] 是由 next_hash 组层的单向链表
         // 这是最普通的单向链表的插入值的方法    ptr 是list[i]的地址，*ptr
         // 指向一个LRUHandle 对象
-        h->next_hash = *ptr;  // h.next_hash 保存 new_list[i] 的地址
-                              //  ptr 指向链表的第一个结点
-        *ptr = h;             // new_list[i] 保存 h 结点的地址,即现在 list[i]
-                              // 现在保存的是重新hash后的结点
+        // h.next_hash 保存 new_list[i] 的地址
+        //  ptr 指向链表的第一个结点
+        h->next_hash = *ptr;
+        // new_list[i] 保存 h 结点的地址,即现在 list[i]
+        // 现在保存的是重新hash后的结点
+        *ptr = h;
         // 上面两行是将一个重新hash 后的结点插入到对应链表头部
 
-        h = next;  // 相同 hash 结点也组成一个链表,这里处理下一个结点
+        // 相同 hash 结点也组成一个链表,这里处理下一个结点
+        h = next;
         count++;
       }
     }
-    assert(
-        elems_ ==
-        count);  // 确保所有的元素都重新 hash
-                 // 了一次,在这个过程中,整个双向链表还是原来的双向链表,只是各结点重新hash到新的
-                 // list
+    // 确保所有的元素都重新 hash 了一次,在这个过程中,
+    // 整个双向链表还是原来的双向链表,只是各结点重新hash到新的 list
+    assert(elems_ ==count);
     delete[] list_;  // 释放旧的表
     list_ = new_list;
     length_ = new_length;

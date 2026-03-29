@@ -63,14 +63,15 @@ size_t BlockBuilder::CurrentSizeEstimate() const {
 Slice BlockBuilder::Finish() {
   // Append restart array
   for (size_t i = 0; i < restarts_.size(); i++) {
-//    printf("---restarts_:%u----\n",restarts_[i]);
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "add restarts offset {}",restarts_[i]);
+    //    printf("---restarts_:%u----\n",restarts_[i]);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "add {} th restarts offset {}",i, restarts_[i]);
     PutFixed32(&buffer_, restarts_[i]);
   }
-//  printf("---restarts_.size():%zu----\n",restarts_.size());
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "add restarts_.size() {}",restarts_.size());
+  //  printf("---restarts_.size():%zu----\n",restarts_.size());
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "add restarts_.size() {}", restarts_.size());
   PutFixed32(&buffer_, restarts_.size());
   finished_ = true;
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "-------- Finish to add restarts offsets ----------");
   return Slice(buffer_);
 }
 
@@ -82,21 +83,35 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   assert(buffer_.empty()  // No values yet?
          || options_->comparator->Compare(key, last_key_piece) > 0);
   size_t shared = 0;
-  if (counter_ < options_->block_restart_interval) {  // 设置重启点的间隔
+  // 设置重启点的间隔
+  if (counter_ < options_->block_restart_interval) {
     // See how much sharing to do with previous string
     // 取上一个存储的key 和当前key 中最小的长度
     const size_t min_length = std::min(last_key_piece.size(), key.size());
     // 计算两个key的相同的长度
     while ((shared < min_length) && (last_key_piece[shared] == key[shared])) {
-      shared++;  // 共享的key的长度
+      // 共享的key的长度
+      shared++;
     }
   } else {
     // Restart compression
-    restarts_.push_back(
-        buffer_.size());  // 将已存储的大小保存到 restarts_ vectory 中
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"add restarted point and size is {}",restarts_.size());
+    // 将已存储的大小保存到 restarts_ vectory 中
+    restarts_.push_back(buffer_.size());
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create new restarted point and size is {}",
+                       restarts_.size());
     counter_ = 0;
   }
+
+  /*
+   *  index_block 的 block_restart_interval 都是 1
+   *  block_block 的 block_restart_interval 用户自定义，一般大于 1
+   *  这里的打印是为了方便区分是先分割的重启点还是先插入数据
+   */
+  if (options_->block_restart_interval > 1) {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "data_block add key {} value {}", key.ToString(),
+                       value.ToString().substr(0, 10));
+  }
+
   const size_t non_shared = key.size() - shared;
   // 要存储的 key 减去共享的长度后的非共享的长度,如果进入新的重启点，shared还是0
 
@@ -108,19 +123,19 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
 
   // Add string delta to buffer_ followed by value
   // 移动key的指针，将非共享的key保存到buffer
-  buffer_.append(key.data() + shared,non_shared);
+  buffer_.append(key.data() + shared, non_shared);
   buffer_.append(value.data(), value.size());  // 保存数据
 
   // 输出buffer
-//  printf("buffer___,counter_ %d buffer_.size():%zu value.size:%zu\n", counter_,
-//         buffer_.size(), value.size());
-//  if (value.size() < 20) {
-//    // 这里如果是char 会多出很多ffff字符
-//    for (unsigned char c : buffer_) {
-//      printf("%02x", c);
-//    }
-//    printf("\n");
-//  }
+  //  printf("buffer___,counter_ %d buffer_.size():%zu value.size:%zu\n", counter_,
+  //         buffer_.size(), value.size());
+  //  if (value.size() < 20) {
+  //    // 这里如果是char 会多出很多ffff字符
+  //    for (unsigned char c : buffer_) {
+  //      printf("%02x", c);
+  //    }
+  //    printf("\n");
+  //  }
 
   // Update state 刚刚存储的key
   last_key_.resize(shared);  // last_key_ 取前面 shared 位

@@ -29,9 +29,8 @@ struct TableBuilder::Rep {
         index_block(&index_block_options),
         num_entries(0),
         closed(false),
-        filter_block(opt.filter_policy == nullptr
-                         ? nullptr
-                         : new FilterBlockBuilder(opt.filter_policy)),
+        filter_block(opt.filter_policy == nullptr ? nullptr
+                                                  : new FilterBlockBuilder(opt.filter_policy)),
         pending_index_entry(false) {
     // 将index_block 的重启点设置为1，该参数是全局变量，option 中默认值为 16
     index_block_options.block_restart_interval = 1;
@@ -119,6 +118,7 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     // 之前的 data_block 数据写完清空，现在是空的block
     assert(r->data_block.empty());
     // 找一个比上次写到 data_block 的key 大的 key 作为 index_block 的 key
+    // 注意和 FindShortSuccessor 不一样
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
     // pending_handle 存储的是 data_block 的 offset,size
     std::string handle_encoding;
@@ -127,28 +127,27 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
     // 数据是 data_block 的 siz e和 offset
     r->pending_handle.EncodeTo(&handle_encoding);
 
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "index block add key {}", r->last_key);
+    SPDLOG_LOGGER_INFO(
+        SpdLogger::Log(), "index block add key {} offset {} size {} encoding {:Xspn}", r->last_key,
+        r->pending_handle.offset(), r->pending_handle.size(), spdlog::to_hex(handle_encoding));
     r->index_block.Add(r->last_key, Slice(handle_encoding));
     r->pending_index_entry = false;
   }
 
-
   /*
    * 过滤器一般是 NewBloomFilterPolicy(10);
    * filter_block.cc 中有设置 kFilterBase
-   * 每当 filter_block.block_offset 达到 kFilterBase 的整数倍时创建一个新的过滤器
-   * 与 data block 的分块逻辑不一样
+   * 每当 filter_block.block_offset 达到 kFilterBase
+   * 的整数倍时创建一个新的过滤器 与 data block 的分块逻辑不一样
    */
   if (r->filter_block != nullptr) {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "filter block add key {}",
-                       key.ToString());
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "filter block add key {}", key.ToString());
     r->filter_block->AddKey(key);
   }
 
   r->last_key.assign(key.data(), key.size());
   r->num_entries++;
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "data block add key {} value {}",
-                     key.ToString(), value.ToString().substr(0, 10));
+  // SPDLOG_LOGGER_INFO(SpdLogger::Log(), "add key to data_block");
   // data_block 添加数据
   r->data_block.Add(key, value);
 
@@ -171,7 +170,6 @@ void TableBuilder::Flush() {
   if (!ok()) return;
   if (r->data_block.empty()) return;
   assert(!r->pending_index_entry);
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write data block");
   // 在 block 后面添加 type 和 crc
   // 初始时 pending_handle 为空
   // 这里通过 data_block 计算 offset 和 size 来设置 pending_handle
@@ -197,13 +195,15 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   //    crc: uint32
   assert(ok());
   Rep* r = rep_;
-  // 存入restart数组信息, 标记 block 结束 ,raw 了 block 的数据
+  // 存入 restart 数组信息, 标记 block 结束 ,raw 保存了未压缩的 block 的数据
   Slice raw = block->Finish();
 
   Slice block_contents;
   CompressionType type = r->options.compression;
-  // 对 key value 的数据 + 重启点数组进行压缩
+  // NOTE: 对 key value 的数据 + 重启点数组进行压缩, 不是对 value 进行压缩
   // TODO(postrelease): Support more compression options: zlib?
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "compress data, type {}",
+                     type == kNoCompression ? "kNoCompression" : "kSnappyCompression");
   switch (type) {
     case kNoCompression:
       block_contents = raw;
@@ -226,6 +226,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   //  printf("WriteRawBlock add type crc\n");
   // 添加 type CRC
   // 对压缩后的数据 + 压缩类型 计算 CRC
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "add COMPRESSION/raw data and crc and write block to file");
   WriteRawBlock(block_contents, type, handle);
   r->compressed_output.clear();
   block->Reset();  // 每写入一个block 清空
@@ -233,12 +234,15 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
 
 // 1.在 block_contents 后面添加 type 和 crc
 // 2.将 size 和 offset 存到 handle 中
-void TableBuilder::WriteRawBlock(const Slice& block_contents,
-                                 CompressionType type, BlockHandle* handle) {
+void TableBuilder::WriteRawBlock(const Slice& block_contents, CompressionType type,
+                                 BlockHandle* handle) {
   Rep* r = rep_;
   handle->set_offset(r->offset);
   // handle用来记录每次写入block后的偏移,比如入写入data_block后再写入metaindex_block
   handle->set_size(block_contents.size());  // data_block/metaindex_block 的大小
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "block offset={}, size={}", handle->offset(),
+                     handle->size());
+
   // 写入 Block 数据到文件,小数据是写到缓存
   r->status = r->file->Append(block_contents);
   if (r->status.ok()) {
@@ -254,7 +258,7 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
       // 修改 offset
       // 上面数据写到缓冲区后，更新偏移量
       // rep 的 offset 中记录的是所有 block 的偏移量的和
-      // 所以 index_block 中不同 entry 的 offset 是递增的,即相对文件开头的偏移量
+      // 所以 data_block/index_block 中不同 entry 的 offset 是递增的,即相对文件开头的偏移量
       // 而不是每个从 0 开始
       r->offset += block_contents.size() + kBlockTrailerSize;
     }
@@ -264,9 +268,12 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
 Status TableBuilder::status() const { return rep_->status; }
 
 Status TableBuilder::Finish() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Finish");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "----- TableBuilder Finish start -----");
 
   Rep* r = rep_;
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),
+                     "----- Flush data block (including the compression process)  to file and add "
+                     "new Filter to filter block  -----");
   Flush();  // 将 data block 写入文件
   assert(!r->closed);
   r->closed = true;
@@ -275,15 +282,13 @@ Status TableBuilder::Finish() {
 
   // Write filter block，将滤波器数据写入f 缓冲区中， 并更新r.offset
   if (ok() && r->filter_block != nullptr) {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write filter block");
-
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write FILTER BLOCK");
     // filter_block->Finish() 构建滤波器数据
-    WriteRawBlock(r->filter_block->Finish(), kNoCompression,
-                  &filter_block_handle);
+    WriteRawBlock(r->filter_block->Finish(), kNoCompression, &filter_block_handle);
   }
 
-  // Write metaindex block   metaindex
-  // 没有数据，包含一个2个字节的重启点字节+1字节压缩类型+4字节crc
+  // Write metaindex block
+  // note: filter_block 不开启时，也会包含一个 2 个字节的重启点字节 +1 字节压缩类型 +4 字节crc
   if (ok()) {
     BlockBuilder meta_index_block(&r->options);
     if (r->filter_block != nullptr) {
@@ -291,14 +296,13 @@ Status TableBuilder::Finish() {
       std::string key = "filter.";
       key.append(r->options.filter_policy->Name());
       std::string handle_encoding;
-      filter_block_handle.EncodeTo(
-          &handle_encoding);  // filter_block的offset 和 size
+      // filter_block的offset 和 size
+      filter_block_handle.EncodeTo(&handle_encoding);
       SPDLOG_LOGGER_INFO(SpdLogger::Log(), "meta index block add {}", key);
 
       meta_index_block.Add(key, handle_encoding);
     }
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write meta block");
-
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "----- write meta block -----");
     // TODO(postrelease): Add stats and other meta blocks
     WriteBlock(&meta_index_block, &metaindex_block_handle);
   }
@@ -306,11 +310,14 @@ Status TableBuilder::Finish() {
   // Write index block
   if (ok()) {
     if (r->pending_index_entry) {
-      r->options.comparator->FindShortSuccessor(
-          &r->last_key);  // 找到一个比上一次存储的key大1点的key abcd->b
+      // 找到一个比上一次存储的key大1点的key abcd->b
+      r->options.comparator->FindShortSuccessor(&r->last_key);
       std::string handle_encoding;
       r->pending_handle.EncodeTo(&handle_encoding);  // 添加offset  size
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "index block add {}", r->last_key);
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(),
+                         "index block add key {} offset {} size {} encoding {:Xspn}", r->last_key,
+                         r->pending_handle.offset(), r->pending_handle.size(),
+                         spdlog::to_hex(handle_encoding));
 
       // index_block 记录了不同 data_block 的索引信息
       // 此时 data_block 都写到了磁盘
@@ -319,7 +326,7 @@ Status TableBuilder::Finish() {
       r->pending_index_entry = false;
     }
     //    printf("index_block write...\n");
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write index block");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "----- write index block -----");
     // 这里是添加重启点信息、压缩信息、CRC
     // 整个代码只有这里对 index_block 有这样的操作
     // 所以一个 ldb 文件只有一个 index_block
@@ -328,7 +335,7 @@ Status TableBuilder::Finish() {
 
   // Write footer
   if (ok()) {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write footer");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "----- write footer -----");
     Footer footer;
     footer.set_metaindex_handle(metaindex_block_handle);
     footer.set_index_handle(index_block_handle);
@@ -339,6 +346,8 @@ Status TableBuilder::Finish() {
       r->offset += footer_encoding.size();
     }
   }
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "----- TableBuilder Finish end, num_entries={}-----",
+                     r->num_entries);
   return r->status;
 }
 

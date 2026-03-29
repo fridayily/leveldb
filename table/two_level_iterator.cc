@@ -81,8 +81,8 @@ TwoLevelIterator::TwoLevelIterator(Iterator* index_iter,
     : block_function_(block_function),
       arg_(arg),
       options_(options),
-      index_iter_(index_iter),  // index 迭代器
-      data_iter_(nullptr) {}    // 数据迭代器
+      index_iter_(index_iter),  // 调用 IteratorWrapper(index_iter)
+      data_iter_(nullptr) {}    // 调用 IteratorWrapper(nullptr)
 
 TwoLevelIterator::~TwoLevelIterator() = default;
 
@@ -133,10 +133,11 @@ void TwoLevelIterator::Prev() {
   data_iter_.Prev();
   SkipEmptyDataBlocksBackward();
 }
-// 检查data_iter 是否有效，data block 读完后进入该函数
+// 检查 data_iter 是否有效，data block 读完后进入该函数
 // 第一次进入后 index_iter 是有效的
 // 会执行 index_iter.Next()
-// 如果 index_iter 有效，说明还有 data block 可以读取，则初始化 data block
+// 如果 index_iter 有效，说明还有 data block 可以读取，执行 index_iter_.Next() 获取
+//                     下一个 data block 的 handel 并调用 InitDataBlock() 初始化这个 data_block
 // 如果 index_iter 无效，说明没有 data block 可以读取，设置 data iter 无效
 void TwoLevelIterator::SkipEmptyDataBlocksForward() {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");

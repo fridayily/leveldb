@@ -50,6 +50,8 @@ endif()
 include(CheckLibraryExists)
 check_library_exists(crc32c crc32c_value "" HAVE_CRC32C)
 check_library_exists(snappy snappy_compress "/opt/homebrew/lib" HAVE_SNAPPY)
+set(HAVE_SNAPPY OFF)
+
 check_library_exists(tcmalloc malloc "" HAVE_TCMALLOC)
 
 if(HAVE_SNAPPY)
@@ -57,6 +59,8 @@ if(HAVE_SNAPPY)
 else()
   message(WARNING "Snappy library not found")
 endif()
+message(STATUS "Snappy compression disabled")
+
 
 include(CheckCXXSymbolExists)
 # Using check_cxx_symbol_exists() instead of check_c_symbol_exists() because

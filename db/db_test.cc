@@ -20,6 +20,7 @@
 #include "port/port.h"
 #include "port/thread_annotations.h"
 #include "util/hash.h"
+#include "util/histogram.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/testutil.h"
@@ -244,6 +245,8 @@ class DBTest : public testing::Test {
     //    options.env = env_;
     //    options.block_restart_interval = 2;
     //    options.write_buffer_size = 100000;  // Small write buffer
+
+    // Reopen 不添加参数是使用测试用例的配置，有参数可以自定义配置
     Reopen();
   }
 
@@ -536,12 +539,15 @@ class DBTest : public testing::Test {
 };
 
 TEST(RandTest, Uniform) {
+  Histogram hist;
+  hist.Clear();
   Random rnd(test::RandomSeed());
-
-  for (int i = 0; i < 100; ++i) {
+  for (int i = 0; i < 10000; ++i) {
     uint32_t n = rnd.Uniform(100);
-    std::cout << n << std::endl;
+    hist.Add(n);
   }
+  std::string histogram_str = hist.ToString();
+  std::cout << histogram_str << std::endl;
 }
 
 TEST(CustomTest, BasicWriteRead) {

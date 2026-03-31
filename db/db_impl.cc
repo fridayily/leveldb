@@ -95,6 +95,13 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
 }
 // 创建数据库路径
 // 创建 LOG 文件
+/*
+ * 1. 实例化 Option 为 result, 并初始化部分值
+ * 2. 将 result 的部分变量限制在合理的范围内
+ * 3. 创建数据库路径
+ * 4. 创建 LOG 文件，并实例化 result.info_log, 便于读写 LOG 文件
+ * 5. 创建 block_cache（NewLRUCache 对象）
+ */
 Options SanitizeOptions(const std::string& dbname,
                         const InternalKeyComparator* icmp,
                         const InternalFilterPolicy* ipolicy,
@@ -141,17 +148,28 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
     : env_(raw_options.env),
       internal_comparator_(raw_options.comparator),        // 比较器
       internal_filter_policy_(raw_options.filter_policy),  // 过滤器
+      // 将部分 option 参数合法化， 创建 数据库文件夹和 LOG 文件，并分配 block_cache LRU 空间
       options_(SanitizeOptions(
           dbname, &internal_comparator_,  // 参数合法化
           &internal_filter_policy_,
-          raw_options)),  // 创建 数据库文件夹和 LOG 文件，并分配 block_cache LRU 空间
-      owns_info_log_(options_.info_log != raw_options.info_log),  // 是否配置log
+          raw_options)),
+      /*
+       *  用于标记 DBImpl 是否负责释放 info_log 对象
+       *  如果两者不同说明 options_.info_log 是 LevelDB 在内部创建的新日志对象
+       *  owns_info_log_ 被设置为 true，表示 DBImpl 需要负责释放这个日志对象
+       *
+       *  如果两者相同（options_.info_log != raw_options.info_log 为假）
+       *  说明 info_log 是用户提供的，LevelDB 不应接管其所有权
+       *  owns_info_log_ 被设置为 false，表示 DBImpl 不需要释放这个日志对象
+       */
+      owns_info_log_(options_.info_log != raw_options.info_log),
       // 是否配置 block_cache
       owns_cache_(options_.block_cache != raw_options.block_cache),
-      dbname_(dbname),  // 数据库名称
+      // 数据库名称, 路径已经在 SanitizeOptions 中创建
+      dbname_(dbname),
       // table_cache 一个 LRU
       table_cache_(new TableCache(dbname_, options_, TableCacheSize(options_))),
-      db_lock_(nullptr),  // 锁
+      db_lock_(nullptr),
       shutting_down_(false),
       background_work_finished_signal_(&mutex_),
       mem_(nullptr),  // MemTable
@@ -688,13 +706,14 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,
   while (!manual.done && !shutting_down_.load(std::memory_order_acquire) &&
          bg_error_.ok()) {
     if (manual_compaction_ == nullptr) {  // Idle
-      manual_compaction_ = &manual;       // 手动 compact
-      // ManualCompaction 对象中有要压缩的 level、begin key 、end key 和
-      // 完成状态
-      MaybeScheduleCompaction();  // 发起一个调度任务，第二次循环到 else
-                                  // 中等待任务执行完成
+      // 手动 compact
+      manual_compaction_ = &manual;
+      // ManualCompaction 对象中有要压缩的 level、begin key 、end key 和 完成状态
+      // 发起一个调度任务，第二次循环到 else 中等待任务执行完成
+      MaybeScheduleCompaction();
     } else {  // Running either my compaction or another compaction.
-      background_work_finished_signal_.Wait();  // 等待发起的任务执行完毕
+      // 等待发起的任务执行完毕
+      background_work_finished_signal_.Wait();
     }
   }
   if (manual_compaction_ == &manual) {
@@ -1687,11 +1706,15 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
   if (result.ok()) {
     uint64_t number;
     FileType type;
-    for (size_t i = 0; i < filenames.size();
-         i++) {  // 循环删除 getChildren 生成的文件
+    // 循环删除 getChildren 生成的文件
+    for (size_t i = 0; i < filenames.size();i++) {
       if (ParseFileName(filenames[i], &number, &type) &&
           type != kDBLockFile) {  // Lock file will be deleted at end
         Status del = env->RemoveFile(dbname + "/" + filenames[i]);
+        /*
+         * 只有当之前的 result 是 OK 状态时，才会将删除失败的状态更新到 result
+         * 这意味着如果第一个文件删除失败，后续文件的删除失败不会覆盖这个错误
+         */
         if (result.ok() && !del.ok()) {
           result = del;
         }

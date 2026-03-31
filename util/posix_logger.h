@@ -86,9 +86,9 @@ class PosixLogger final : public Logger {
       // 避免了多次调用 va_start 和 va_end 函数的麻烦。
       va_copy(arguments_copy, arguments);
       // int snprintf(char *str, size_t size, const char *format, ...);
-      // str 是目标缓冲区的指针，size 是缓冲区的大小，format 是格式化字符串，... 表示可变参数列表
+      //    str 是目标缓冲区的指针，size 是缓冲区的大小，format 是格式化字符串，... 表示可变参数列表
       // int vsnprintf(char *str, size_t size, const char *format, va_list args);
-      // args 是一个 va_list 类型的参数，通过 va_start 宏初始化，表示可变参数列表的起始位置。
+      //    args 是一个 va_list 类型的参数，通过 va_start 宏初始化，表示可变参数列表的起始位置。
       buffer_offset +=
           std::vsnprintf(buffer + buffer_offset, buffer_size - buffer_offset,
                          format, arguments_copy);
@@ -121,12 +121,21 @@ class PosixLogger final : public Logger {
 
       assert(buffer_offset <= buffer_size);
       // size_t fwrite(const void *ptr, size_t size, size_t count, FILE *stream);
-      // ptr 指向写入的内存地址，size 要写入的每一个元素的大小，count 是写入的元素数量，stream 是指向文件指针的指针。
+      //    从 ptr 指向的内存位置读取数据
+      //    size 要写入的每一个元素的大小
+      //    count 是写入的元素数量，
+      //    指向 FILE 对象的指针，该对象指定了要写入的文件流
       std::fwrite(buffer, 1, buffer_offset, fp_);
       // 将输出流的缓冲区中数据立即写到其目标位置，而不是等待缓冲区满或则程序退出时才写入
-      // 作用：在程序退出之前确保所有输出都已写入文件或终端
-      //  在输出流被修改之后刷新流，以确保新的修改也立即写入目标位置
+      // 清空缓冲区，使其可以接收新的数据
       std::fflush(fp_);
+      /*
+       * fflush 刷新单个流的缓冲区，确保特定流的数据写入
+       *        用户缓冲区 -> 内核缓冲区
+       * fsync  将文件数据和元数据刷新到磁盘, 比 fflush 更彻底，确保数据持久化
+       *        内核缓冲区 -> 磁盘
+       * fclose	关闭文件并刷新缓冲区, 结束文件操作时使用
+       */
 
       if (iteration != 0) {
         delete[] buffer;

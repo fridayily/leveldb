@@ -165,6 +165,7 @@ class DBImpl : public DB {
   const InternalKeyComparator internal_comparator_;
   const InternalFilterPolicy internal_filter_policy_;
   const Options options_;  // options_.comparator == &internal_comparator_
+  // 用于标记 DBImpl 是否负责释放 info_log 对象
   const bool owns_info_log_;
   const bool owns_cache_;
   const std::string dbname_;
@@ -188,7 +189,7 @@ class DBImpl : public DB {
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.
-  std::deque<Writer*> writers_ GUARDED_BY(mutex_); // 双端队列
+  std::deque<Writer*> writers_ GUARDED_BY(mutex_);
   WriteBatch* tmp_batch_ GUARDED_BY(mutex_);
   // 如果列表初始化中没有明确初始化
   // 类类型的成员变量会调用默认构造函数进行初始化

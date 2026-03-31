@@ -75,8 +75,10 @@ void PutVarint64(std::string* dst, uint64_t v) {
 }
 // 先存入value 的长度，再存入value
 void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
-  PutVarint32(dst, value.size()); // 将 value 的长度放入dst
-  dst->append(value.data(), value.size()); // 将值放入 dst ,dst->data 存一个指针，存储真实数据
+  // 将 value 的长度放入dst
+  PutVarint32(dst, value.size());
+  // 将值放入 dst ,dst->data 存一个指针，存储真实数据
+  dst->append(value.data(), value.size());
 }
 
 int VarintLength(uint64_t v) {

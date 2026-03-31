@@ -743,8 +743,8 @@ class PosixEnv : public Env {
       return Status::IOError("lock " + filename, "already held by process");
     }
 
-    // 文件没有被占用, 加锁
-    if (LockOrUnlock(fd, true) == -1) {  // true 加锁 false 解锁
+    // 文件没有被占用, 加锁, true 加锁 false 解锁
+    if (LockOrUnlock(fd, true) == -1) {
       int lock_errno = errno;
       ::close(fd);
       locks_.Remove(filename);

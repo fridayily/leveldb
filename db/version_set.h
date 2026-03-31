@@ -128,6 +128,7 @@ class Version {
 
   class LevelFileNumIterator;
 
+  // 防止外部代码直接创建 Version 对象，避免破坏版本链的完整性
   explicit Version(VersionSet* vset)
       : vset_(vset),
         next_(this),
@@ -308,8 +309,9 @@ class VersionSet {
   // 不能改变 options_ 指针本身的值
   const Options* const options_;
   // 指向 TableCache 对象的常量指针
-  // 以修改 table_cache_ 指针指向的 TableCache 对象的内容
+  // 可以修改 table_cache_ 指针指向的 TableCache 对象的内容
   // 不能改变 table_cache_ 指针本身的值
+  // 缓存 SST 表：避免频繁打开和关闭文件，提高读取性能
   TableCache* const table_cache_;
   const InternalKeyComparator icmp_;
   uint64_t next_file_number_;

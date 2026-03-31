@@ -42,8 +42,7 @@ const int kNumNonTableCacheFiles = 10;
 
 // Information kept for every waiting writer
 struct DBImpl::Writer {
-  explicit Writer(port::Mutex* mu)
-      : batch(nullptr), sync(false), done(false), cv(mu) {}
+  explicit Writer(port::Mutex* mu) : batch(nullptr), sync(false), done(false), cv(mu) {}
 
   Status status;
   WriteBatch* batch;
@@ -63,11 +62,7 @@ struct DBImpl::CompactionState {
   Output* current_output() { return &outputs[outputs.size() - 1]; }
 
   explicit CompactionState(Compaction* c)
-      : compaction(c),
-        smallest_snapshot(0),
-        outfile(nullptr),
-        builder(nullptr),
-        total_bytes(0) {}
+      : compaction(c), smallest_snapshot(0), outfile(nullptr), builder(nullptr), total_bytes(0) {}
 
   Compaction* const compaction;
 
@@ -102,10 +97,8 @@ static void ClipToRange(T* ptr, V minvalue, V maxvalue) {
  * 4. 创建 LOG 文件，并实例化 result.info_log, 便于读写 LOG 文件
  * 5. 创建 block_cache（NewLRUCache 对象）
  */
-Options SanitizeOptions(const std::string& dbname,
-                        const InternalKeyComparator* icmp,
-                        const InternalFilterPolicy* ipolicy,
-                        const Options& src) {
+Options SanitizeOptions(const std::string& dbname, const InternalKeyComparator* icmp,
+                        const InternalFilterPolicy* ipolicy, const Options& src) {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Sanitize");
   Options result = src;
   result.comparator = icmp;
@@ -115,15 +108,16 @@ Options SanitizeOptions(const std::string& dbname,
   ClipToRange(&result.max_file_size, 1 << 20, 1 << 30);
   ClipToRange(&result.block_size, 1 << 10, 4 << 20);
   if (result.info_log == nullptr) {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "env->CreateDir {}",dbname);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "env->CreateDir {}", dbname);
     // Open a log file in the same directory as the db
     src.env->CreateDir(dbname);  // In case it does not exist  创建数据库名称
     // 将现存的 db_name/LOG 改名为 db_name/LOG.old
     // 然后新建 db_name/LOG
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "env->RenameFile LogFile from {} to {}",InfoLogFileName(dbname),OldInfoLogFileName(dbname));
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "env->RenameFile LogFile from {} to {}",
+                       InfoLogFileName(dbname), OldInfoLogFileName(dbname));
     src.env->RenameFile(InfoLogFileName(dbname), OldInfoLogFileName(dbname));
     // 创建 LOG 文件
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "env->create LogFile: {}",InfoLogFileName(dbname));
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "env->create LogFile: {}", InfoLogFileName(dbname));
     Status s = src.env->NewLogger(InfoLogFileName(dbname), &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
@@ -149,10 +143,8 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       internal_comparator_(raw_options.comparator),        // 比较器
       internal_filter_policy_(raw_options.filter_policy),  // 过滤器
       // 将部分 option 参数合法化， 创建 数据库文件夹和 LOG 文件，并分配 block_cache LRU 空间
-      options_(SanitizeOptions(
-          dbname, &internal_comparator_,  // 参数合法化
-          &internal_filter_policy_,
-          raw_options)),
+      options_(SanitizeOptions(dbname, &internal_comparator_,  // 参数合法化
+                               &internal_filter_policy_, raw_options)),
       /*
        *  用于标记 DBImpl 是否负责释放 info_log 对象
        *  如果两者不同说明 options_.info_log 是 LevelDB 在内部创建的新日志对象
@@ -184,8 +176,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       manual_compaction_(nullptr),
       // 整个数据库实例只会实例化 VersionSet 一次
       // 之后新建 version 第一个参数都是该 VersionSet
-      versions_(new VersionSet(dbname_, &options_, table_cache_,
-                               &internal_comparator_)) {}
+      versions_(new VersionSet(dbname_, &options_, table_cache_, &internal_comparator_)) {}
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish.
@@ -224,17 +215,18 @@ Status DBImpl::NewDB() {
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
 
-  const std::string manifest =
-      DescriptorFileName(dbname_, 1);  // manifest 文件名
+  const std::string manifest = DescriptorFileName(dbname_, 1);  // manifest 文件名
   WritableFile* file;
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create writable manifest {}", manifest);
-  Status s = env_->NewWritableFile(manifest, &file);  // 创建 manifest 文件
+  // 创建 manifest 文件
+  Status s = env_->NewWritableFile(manifest, &file);
   if (!s.ok()) {
     return s;
   }
   {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create log write {}", manifest);
-    log::Writer log(file);  // 计算所有 log record type 的 crc32
+    // 计算所有 log record type 的 crc32
+    log::Writer log(file);
     std::string record;
     new_db.EncodeTo(&record);
     // 将 VersionEdit 编码后的数据写到 Log 文件中
@@ -279,7 +271,8 @@ void DBImpl::RemoveObsoleteFiles() {
 
   // Make a set of all of the live files
   std::set<uint64_t> live = pending_outputs_;
-  versions_->AddLiveFiles(&live);  // 将所有层级包含的文件编号添加到 live 中
+  // 将所有层级包含的文件编号添加到 live 中
+  versions_->AddLiveFiles(&live);
 
   std::vector<std::string> filenames;
   env_->GetChildren(dbname_, &filenames);  // Ignoring errors on purpose
@@ -287,15 +280,13 @@ void DBImpl::RemoveObsoleteFiles() {
   FileType type;
   std::vector<std::string> files_to_delete;
   for (std::string& filename : filenames) {
-    if (ParseFileName(filename, &number, &type)) {  // 获取文件名的编号
-      bool keep = true;  // 为true 说明保留，为false 删除
+    // 获取文件名的编号为true 说明保留，为false 删除
+    if (ParseFileName(filename, &number, &type)) {
+      bool keep = true;
       switch (type) {
         case kLogFile:
-          keep =
-              ((number >= versions_->LogNumber()) ||  // 符合条件的 number
-                                                      // 说明是最新的文件，标记
-                                                      // keep 为 true,否则删除
-               (number == versions_->PrevLogNumber()));
+          keep = ((number >= versions_->LogNumber()) || (number == versions_->PrevLogNumber()));
+          // 符合条件的 number 说明是最新的文件，标记 keep 为 true,否则删除
           break;
         case kDescriptorFile:
           // Keep my manifest file, and any newer incarnations'
@@ -303,9 +294,8 @@ void DBImpl::RemoveObsoleteFiles() {
           keep = (number >= versions_->ManifestFileNumber());
           break;
         case kTableFile:
-          keep =
-              (live.find(number) !=
-               live.end());  // live 中找的到磁盘中ldb文件序号，则 keep 为 true
+          keep = (live.find(number) != live.end());
+          // live 中找的到磁盘中ldb文件序号，则 keep 为 true
           break;
         case kTempFile:
           // Any temp files that are currently being written to must
@@ -333,7 +323,8 @@ void DBImpl::RemoveObsoleteFiles() {
   // While deleting all files unblock other threads. All files being deleted
   // have unique names which will not collide with newly created files and
   // are therefore safe to delete while allowing other threads to proceed.
-  mutex_.Unlock();  // 将要删除的文件一起删除
+  mutex_.Unlock();
+  // 将要删除的文件一起删除
   for (const std::string& filename : files_to_delete) {
     env_->RemoveFile(dbname_ + "/" + filename);
   }
@@ -341,17 +332,19 @@ void DBImpl::RemoveObsoleteFiles() {
 }
 
 Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
-  mutex_.AssertHeld();  // 确保获得线程锁
+  // 确保获得线程锁
+  mutex_.AssertHeld();
 
   // Ignore error from CreateDir since the creation of the DB is
   // committed only when the descriptor is created, and this directory
   // may already exist from a previous failed creation attempt.
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "CreateDir {}", dbname_);
-  env_->CreateDir(dbname_);  // 如果在调用 recover 之前调用了 DBImpl,目录已存在
+  // 如果在调用 recover 之前调用了 DBImpl,目录已存在
+  env_->CreateDir(dbname_);
   assert(db_lock_ == nullptr);
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "CreateLockFile ");
-
-  Status s = env_->LockFile(LockFileName(dbname_), &db_lock_);  // 创建LOCK文件
+  // 创建LOCK文件
+  Status s = env_->LockFile(LockFileName(dbname_), &db_lock_);
   if (!s.ok()) {
     return s;
   }
@@ -360,8 +353,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   if (!env_->FileExists(CurrentFileName(dbname_))) {
     if (options_.create_if_missing) {
       // 将日志 写入/tmp/db_test/LOG 文件
-      Log(options_.info_log, "Creating DB %s since it was missing.",
-          dbname_.c_str());
+      Log(options_.info_log, "Creating DB %s since it was missing.", dbname_.c_str());
       SPDLOG_LOGGER_INFO(SpdLogger::Log(), "db missing,create db");
       // 创建 manifest, CURRENT 文件
       s = NewDB();
@@ -369,13 +361,11 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
         return s;
       }
     } else {
-      return Status::InvalidArgument(
-          dbname_, "does not exist (create_if_missing is false)");
+      return Status::InvalidArgument(dbname_, "does not exist (create_if_missing is false)");
     }
   } else {
     if (options_.error_if_exists) {
-      return Status::InvalidArgument(dbname_,
-                                     "exists (error_if_exists is true)");
+      return Status::InvalidArgument(dbname_, "exists (error_if_exists is true)");
     }
   }
 
@@ -396,8 +386,8 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   const uint64_t min_log = versions_->LogNumber();
   const uint64_t prev_log = versions_->PrevLogNumber();
   std::vector<std::string> filenames;
-  s = env_->GetChildren(dbname_,
-                        &filenames);  // 将文件夹下的文件名都存到filenames中
+  // 将文件夹下的文件名都存到filenames中
+  s = env_->GetChildren(dbname_, &filenames);
   if (!s.ok()) {
     return s;
   }
@@ -421,8 +411,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   }
   if (!expected.empty()) {
     char buf[50];
-    std::snprintf(buf, sizeof(buf), "%d missing files; e.g.",
-                  static_cast<int>(expected.size()));
+    std::snprintf(buf, sizeof(buf), "%d missing files; e.g.", static_cast<int>(expected.size()));
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "{}", buf);
     return Status::Corruption(buf, TableFileName(dbname_, *(expected.begin())));
   }
@@ -431,8 +420,7 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   std::sort(logs.begin(), logs.end());
   for (size_t i = 0; i < logs.size(); i++) {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "recoverLogFile {}", i);
-    s = RecoverLogFile(logs[i], (i == logs.size() - 1), save_manifest, edit,
-                       &max_sequence);
+    s = RecoverLogFile(logs[i], (i == logs.size() - 1), save_manifest, edit, &max_sequence);
     if (!s.ok()) {
       return s;
     }
@@ -450,9 +438,8 @@ Status DBImpl::Recover(VersionEdit* edit, bool* save_manifest) {
   return Status::OK();
 }
 
-Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
-                              bool* save_manifest, VersionEdit* edit,
-                              SequenceNumber* max_sequence) {
+Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log, bool* save_manifest,
+                              VersionEdit* edit, SequenceNumber* max_sequence) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -460,8 +447,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
     Status* status;  // null if options_.paranoid_checks==false
     void Corruption(size_t bytes, const Status& s) override {
       Log(info_log, "%s%s: dropping %d bytes; %s",
-          (this->status == nullptr ? "(ignoring error) " : ""), fname,
-          static_cast<int>(bytes), s.ToString().c_str());
+          (this->status == nullptr ? "(ignoring error) " : ""), fname, static_cast<int>(bytes),
+          s.ToString().c_str());
       if (this->status != nullptr && this->status->ok()) *this->status = s;
     }
   };
@@ -472,8 +459,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   //
   std::string fname = LogFileName(dbname_, log_number);
   SequentialFile* file;
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create Sequential LogfileName {}",
-                     fname);
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create Sequential LogfileName {}", fname);
   Status status = env_->NewSequentialFile(fname, &file);
   if (!status.ok()) {
     MaybeIgnoreError(&status);
@@ -491,8 +477,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   // to be skipped instead of propagating bad information (like overly
   // large sequence numbers).
   log::Reader reader(file, &reporter, true /*checksum*/, 0 /*initial_offset*/);
-  Log(options_.info_log, "Recovering log #%llu",
-      (unsigned long long)log_number);
+  Log(options_.info_log, "Recovering log #%llu", (unsigned long long)log_number);
 
   // Read all the records and add to a memtable
   std::string scratch;
@@ -502,8 +487,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   MemTable* mem = nullptr;
   while (reader.ReadRecord(&record, &scratch) && status.ok()) {
     if (record.size() < 12) {
-      reporter.Corruption(record.size(),
-                          Status::Corruption("log record too small"));
+      reporter.Corruption(record.size(), Status::Corruption("log record too small"));
       continue;
     }
     WriteBatchInternal::SetContents(&batch, record);
@@ -518,8 +502,8 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
     if (!status.ok()) {
       break;
     }
-    const SequenceNumber last_seq = WriteBatchInternal::Sequence(&batch) +
-                                    WriteBatchInternal::Count(&batch) - 1;
+    const SequenceNumber last_seq =
+        WriteBatchInternal::Sequence(&batch) + WriteBatchInternal::Count(&batch) - 1;
     if (last_seq > *max_sequence) {
       *max_sequence = last_seq;
     }
@@ -574,16 +558,16 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log,
   return status;
 }
 // 这里的mem 是 immutable, 向 edit 中添加文件元信息，文件元信息从base 中获取
-Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
-                                Version* base) {
+Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  meta.number = versions_->NewFileNumber();  // ldb 文件的编号
-  pending_outputs_.insert(meta.number);      // 将生产的文件ID放到set中
+  // ldb 文件的编号
+  meta.number = versions_->NewFileNumber();
+  // 将生产的文件ID放到set中
+  pending_outputs_.insert(meta.number);
   Iterator* iter = mem->NewIterator();
-  Log(options_.info_log, "Level-0 table #%llu: started",
-      (unsigned long long)meta.number);
+  Log(options_.info_log, "Level-0 table #%llu: started", (unsigned long long)meta.number);
   // 上面语句写入 LOG 文件
   Status s;
   {
@@ -594,16 +578,17 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     mutex_.Lock();
   }
 
-  Log(options_.info_log, "Level-0 table #%llu: %lld bytes %s",
-      (unsigned long long)meta.number, (unsigned long long)meta.file_size,
-      s.ToString().c_str());
+  Log(options_.info_log, "Level-0 table #%llu: %lld bytes %s", (unsigned long long)meta.number,
+      (unsigned long long)meta.file_size, s.ToString().c_str());
   delete iter;
-  pending_outputs_.erase(meta.number);  // 清除数据
+  // 清除数据
+  pending_outputs_.erase(meta.number);
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
   int level = 0;
-  if (s.ok() && meta.file_size > 0) {  // meta.file_size 就是写入 ldb 文件的大小
+  // meta.file_size 就是写入 ldb 文件的大小
+  if (s.ok() && meta.file_size > 0) {
     const Slice min_user_key = meta.smallest.user_key();
     const Slice max_user_key = meta.largest.user_key();
     if (base != nullptr) {
@@ -615,14 +600,14 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
     }
     // 将文件元信息（文件号，文件大小，最大、最小key） 添加到对应 new_files_ 中
     // new_files_ 中保存了每一 level 的文件元信息
-    edit->AddFile(level, meta.number, meta.file_size, meta.smallest,
-                  meta.largest);
+    edit->AddFile(level, meta.number, meta.file_size, meta.smallest, meta.largest);
   }
   // 将刚生产的ldb文件的元信息添加到 stats_ 中
   CompactionStats stats;
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.file_size;
-  stats_[level].Add(stats);  // 第level层的统计信息
+  // 第level层的统计信息
+  stats_[level].Add(stats);
   return s;
 }
 // compact 操作
@@ -631,8 +616,10 @@ void DBImpl::CompactMemTable() {
   assert(imm_ != nullptr);
 
   // Save the contents of the memtable as a new Table
-  VersionEdit edit;                      // 创建新的edit 文件
-  Version* base = versions_->current();  // 获取当前的 version
+  // 创建新的edit 文件
+  VersionEdit edit;
+  // 获取当前的 version
+  Version* base = versions_->current();
   base->Ref();
   // edit 会从base中获取文件元信息
   Status s = WriteLevel0Table(imm_, &edit, base);
@@ -653,9 +640,10 @@ void DBImpl::CompactMemTable() {
   if (s.ok()) {
     // Commit to the new state
     imm_->Unref();
-    imm_ = nullptr;  // imm 置空
+    imm_ = nullptr;
     has_imm_.store(false, std::memory_order_release);
-    RemoveObsoleteFiles();  // 删除旧的文件
+    // 删除旧的文件
+    RemoveObsoleteFiles();
   } else {
     RecordBackgroundError(s);
   }
@@ -678,8 +666,7 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   }
 }
 
-void DBImpl::TEST_CompactRange(int level, const Slice* begin,
-                               const Slice* end) {
+void DBImpl::TEST_CompactRange(int level, const Slice* begin, const Slice* end) {
   assert(level >= 0);
   assert(level + 1 < config::kNumLevels);
 
@@ -690,21 +677,22 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin,
   manual.done = false;
   if (begin == nullptr) {
     manual.begin = nullptr;
-  } else {  // 指定一个最小的key, kMaxSequenceNumber 逆序排列  相当于负无穷的key
+  } else {
+    // 指定一个最小的key, kMaxSequenceNumber 逆序排列  相当于负无穷的key
     begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);
     manual.begin = &begin_storage;
   }
   if (end == nullptr) {
     manual.end = nullptr;
-  } else {  // 指定一个最大的key, 逆序排列，0 最大
+  } else {
+    // 指定一个最大的key, 逆序排列，0 最大
     end_storage = InternalKey(*end, 0, static_cast<ValueType>(0));
     manual.end = &end_storage;
   }
 
   MutexLock l(&mutex_);
   // 用于确保在读取shutting_down_的值之前，所有写入shutting_down_的值都已经被刷新到主内存中
-  while (!manual.done && !shutting_down_.load(std::memory_order_acquire) &&
-         bg_error_.ok()) {
+  while (!manual.done && !shutting_down_.load(std::memory_order_acquire) && bg_error_.ok()) {
     if (manual_compaction_ == nullptr) {  // Idle
       // 手动 compact
       manual_compaction_ = &manual;
@@ -727,7 +715,8 @@ Status DBImpl::TEST_CompactMemTable() {
   Status s = Write(WriteOptions(), nullptr);
   if (s.ok()) {
     // Wait until the compaction completes
-    MutexLock l(&mutex_);  // 访问共享区加锁
+    // 访问共享区加锁
+    MutexLock l(&mutex_);
     // imm_不为空，就一直阻塞在这里，直到收到通知，跳出while循环
     while (imm_ != nullptr && bg_error_.ok()) {
       background_work_finished_signal_.Wait();
@@ -755,18 +744,16 @@ void DBImpl::MaybeScheduleCompaction() {
     // DB is being deleted; no more background compactions
   } else if (!bg_error_.ok()) {
     // Already got an error; no more changes
-  } else if (imm_ == nullptr && manual_compaction_ == nullptr &&
-             !versions_->NeedsCompaction()) {
+  } else if (imm_ == nullptr && manual_compaction_ == nullptr && !versions_->NeedsCompaction()) {
     // No work to be done
   } else {
-    background_compaction_scheduled_ = true;  // 后台压缩调度设为 true
+    // 后台压缩调度设为 true
+    background_compaction_scheduled_ = true;
     env_->Schedule(&DBImpl::BGWork, this);
   }
 }
 
-void DBImpl::BGWork(void* db) {
-  reinterpret_cast<DBImpl*>(db)->BackgroundCall();
-}
+void DBImpl::BGWork(void* db) { reinterpret_cast<DBImpl*>(db)->BackgroundCall(); }
 
 void DBImpl::BackgroundCall() {
   MutexLock l(&mutex_);
@@ -806,8 +793,7 @@ void DBImpl::BackgroundCompaction() {
     if (c != nullptr) {
       manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
     }
-    Log(options_.info_log,
-        "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
+    Log(options_.info_log, "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
         m->level, (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
         (m->end ? m->end->DebugString().c_str() : "(end)"),
         (m->done ? "(end)" : manual_end.DebugString().c_str()));
@@ -823,8 +809,7 @@ void DBImpl::BackgroundCompaction() {
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
     c->edit()->RemoveFile(c->level(), f->number);
-    c->edit()->AddFile(c->level() + 1, f->number, f->file_size, f->smallest,
-                       f->largest);
+    c->edit()->AddFile(c->level() + 1, f->number, f->file_size, f->smallest, f->largest);
     status = versions_->LogAndApply(c->edit(), &mutex_);
     if (!status.ok()) {
       RecordBackgroundError(status);
@@ -832,8 +817,8 @@ void DBImpl::BackgroundCompaction() {
     VersionSet::LevelSummaryStorage tmp;
     Log(options_.info_log, "Moved #%lld to level-%d %lld bytes %s: %s\n",
         static_cast<unsigned long long>(f->number), c->level() + 1,
-        static_cast<unsigned long long>(f->file_size),
-        status.ToString().c_str(), versions_->LevelSummary(&tmp));
+        static_cast<unsigned long long>(f->file_size), status.ToString().c_str(),
+        versions_->LevelSummary(&tmp));
   } else {
     CompactionState* compact = new CompactionState(c);
     status = DoCompactionWork(compact);
@@ -911,8 +896,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   return s;
 }
 
-Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
-                                          Iterator* input) {
+Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* input) {
   assert(compact != nullptr);
   assert(compact->outfile != nullptr);
   assert(compact->builder != nullptr);
@@ -946,15 +930,13 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
 
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
-    Iterator* iter =
-        table_cache_->NewIterator(ReadOptions(), output_number, current_bytes);
+    Iterator* iter = table_cache_->NewIterator(ReadOptions(), output_number, current_bytes);
     s = iter->status();
     delete iter;
     if (s.ok()) {
       Log(options_.info_log, "Generated table #%llu@%d: %lld keys, %lld bytes",
           (unsigned long long)output_number, compact->compaction->level(),
-          (unsigned long long)current_entries,
-          (unsigned long long)current_bytes);
+          (unsigned long long)current_entries, (unsigned long long)current_bytes);
     }
   }
   return s;
@@ -972,8 +954,8 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   const int level = compact->compaction->level();
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
-    compact->compaction->edit()->AddFile(level + 1, out.number, out.file_size,
-                                         out.smallest, out.largest);
+    compact->compaction->edit()->AddFile(level + 1, out.number, out.file_size, out.smallest,
+                                         out.largest);
   }
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
@@ -982,9 +964,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
-  Log(options_.info_log, "Compacting %d@%d + %d@%d files",
-      compact->compaction->num_input_files(0), compact->compaction->level(),
-      compact->compaction->num_input_files(1),
+  Log(options_.info_log, "Compacting %d@%d + %d@%d files", compact->compaction->num_input_files(0),
+      compact->compaction->level(), compact->compaction->num_input_files(1),
       compact->compaction->level() + 1);
 
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
@@ -1022,8 +1003,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     }
 
     Slice key = input->key();
-    if (compact->compaction->ShouldStopBefore(key) &&
-        compact->builder != nullptr) {
+    if (compact->compaction->ShouldStopBefore(key) && compact->builder != nullptr) {
       status = FinishCompactionOutputFile(compact, input);
       if (!status.ok()) {
         break;
@@ -1039,8 +1019,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       last_sequence_for_key = kMaxSequenceNumber;
     } else {
       if (!has_current_user_key ||
-          user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) !=
-              0) {
+          user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) != 0) {
         // First occurrence of this user key
         current_user_key.assign(ikey.user_key.data(), ikey.user_key.size());
         has_current_user_key = true;
@@ -1050,8 +1029,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;  // (A)
-      } else if (ikey.type == kTypeDeletion &&
-                 ikey.sequence <= compact->smallest_snapshot &&
+      } else if (ikey.type == kTypeDeletion && ikey.sequence <= compact->smallest_snapshot &&
                  compact->compaction->IsBaseLevelForKey(ikey.user_key)) {
         // For this user key:
         // (1) there is no data in higher levels
@@ -1090,8 +1068,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
       compact->builder->Add(key, input->value());
 
       // Close output file if it is big enough
-      if (compact->builder->FileSize() >=
-          compact->compaction->MaxOutputFileSize()) {
+      if (compact->builder->FileSize() >= compact->compaction->MaxOutputFileSize()) {
         status = FinishCompactionOutputFile(compact, input);
         if (!status.ok()) {
           break;
@@ -1163,25 +1140,22 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
 }  // anonymous namespace
 
-Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
-                                      SequenceNumber* latest_snapshot,
+Iterator* DBImpl::NewInternalIterator(const ReadOptions& options, SequenceNumber* latest_snapshot,
                                       uint32_t* seed) {
   mutex_.Lock();
   *latest_snapshot = versions_->LastSequence();
 
   // Collect together all needed child iterators
   std::vector<Iterator*> list;
-  list.push_back(
-      mem_->NewIterator());  // mem_NewIterator 返回一个MemTableIterator 指针
+  list.push_back(mem_->NewIterator());  // mem_NewIterator 返回一个MemTableIterator 指针
   mem_->Ref();
   if (imm_ != nullptr) {
     list.push_back(imm_->NewIterator());
     imm_->Ref();
   }
   versions_->current()->AddIterators(options, &list);
-  Iterator*
-      internal_iter =  // 如果list.size()=1,则internal_iter就是list[0]中保存的迭代器
-      NewMergingIterator(&internal_comparator_, &list[0], list.size());
+  // 如果list.size()=1,则internal_iter就是list[0]中保存的迭代器
+  Iterator* internal_iter = NewMergingIterator(&internal_comparator_, &list[0], list.size());
   versions_->current()->Ref();
 
   IterState* cleanup = new IterState(&mutex_, mem_, imm_, versions_->current());
@@ -1203,18 +1177,16 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes() {
   return versions_->MaxNextLevelOverlappingBytes();
 }
 
-Status DBImpl::Get(const ReadOptions& options, const Slice& key,
-                   std::string* value) {
+Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string* value) {
   Status s;
-  MutexLock l(&mutex_);  // 构造函数负责加锁
+  // 构造函数负责加锁
+  MutexLock l(&mutex_);
   SequenceNumber snapshot;
   if (options.snapshot != nullptr) {
-    snapshot =
-        static_cast<const SnapshotImpl*>(options.snapshot)->sequence_number();
+    snapshot = static_cast<const SnapshotImpl*>(options.snapshot)->sequence_number();
   } else {
-    snapshot =
-        versions_
-            ->LastSequence();  // 上一个写入的序列号，一般写了几个键这个值就是几
+    // 上一个写入的序列号，一般写了几个键这个值就是几
+    snapshot = versions_->LastSequence();
   }
 
   MemTable* mem = mem_;
@@ -1234,8 +1206,7 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
     LookupKey lkey(key, snapshot);    // 根据最新的 sequence 构造 lookupkey
     if (mem->Get(lkey, value, &s)) {  // 先在 mem 中查找
       // Done
-    } else if (imm != nullptr &&
-               imm->Get(lkey, value, &s)) {  // 再在 imm 中查找
+    } else if (imm != nullptr && imm->Get(lkey, value, &s)) {  // 再在 imm 中查找
       // Done
     } else {
       s = current->Get(options, lkey, value, &stats);
@@ -1257,13 +1228,12 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;
   Iterator* iter = NewInternalIterator(options, &latest_snapshot, &seed);
-  return NewDBIterator(
-      this, user_comparator(), iter,
-      (options.snapshot != nullptr  // 有设置快照，读取快照，没有取最新快照
-           ? static_cast<const SnapshotImpl*>(options.snapshot)
-                 ->sequence_number()
-           : latest_snapshot),
-      seed);
+  // 有设置快照，读取快照，没有取最新快照
+  return NewDBIterator(this, user_comparator(), iter,
+                       (options.snapshot != nullptr
+                            ? static_cast<const SnapshotImpl*>(options.snapshot)->sequence_number()
+                            : latest_snapshot),
+                       seed);
 }
 
 // 读取的字节数达到了 config::kReadBytesPeriod，记录这个 key
@@ -1320,8 +1290,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   // May temporarily unlock and wait.
   Status status = MakeRoomForWrite(updates == nullptr);
   // 获得最近的 sequence,一般写一个key, 自增1
-  uint64_t last_sequence =
-      versions_->LastSequence();
+  uint64_t last_sequence = versions_->LastSequence();
   // 到这里的都是队首的要写入的数据
   Writer* last_writer = &w;
   // 该线程将任务加入队列，即是生产者，到这里变成消费者, updates=nullptr 没有数据要写入
@@ -1330,9 +1299,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     // 双端队列中一个元素是一个 writebatch,里面包含多个 kv,这里将多个 Writer对象
     // 组合成一个大的 writebatch 注意这里还是持有锁的
     // 获取要写的一组数据
-    WriteBatch* write_batch =BuildBatchGroup(&last_writer);
+    WriteBatch* write_batch = BuildBatchGroup(&last_writer);
     // 修改 sequence
-    WriteBatchInternal::SetSequence(write_batch,last_sequence + 1);
+    WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
     // 将最新的sequence 设置为 write_batch 中取出长度信息
     last_sequence += WriteBatchInternal::Count(write_batch);
 
@@ -1344,8 +1313,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
       // 释放锁，数据写到 memtable 比较耗时，这里允许其他线程添加任务到双端队列
       mutex_.Unlock();
       // 添加到日志中备份
-      status = log_->AddRecord(
-          WriteBatchInternal::Contents(write_batch));
+      status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));
       // 如果配置同步选项，指向文件同步操作
       bool sync_error = false;
       if (status.ok() && options.sync) {
@@ -1396,8 +1364,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   }
 
   // Notify new head of write queue
-  // 如果
-  // writes_中还有数据，唤醒此时的队首线程，那个线程会作为消费者继续消费，本函数则结束
+  // 如果 writes_中还有数据，唤醒此时的队首线程，那个线程会作为消费者继续消费，本函数则结束
   if (!writers_.empty()) {
     writers_.front()->cv.Signal();
   }
@@ -1411,13 +1378,15 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
   // AssertHeld是leveldb基于编译器的线程安全注解(thread safety annotations)
   // 实现的一个断言函数，这个是给编译器看的，如果编译器发现执行这里之前没有加锁，就会报错
   mutex_.AssertHeld();
+  // 从队列中获取第一个任务的地址
   assert(!writers_.empty());
-  Writer* first = writers_.front();   // 从队列中获取第一个任务的地址
-  WriteBatch* result = first->batch;  // 要写的数据
+  Writer* first = writers_.front();
+  // 要写的数据
+  WriteBatch* result = first->batch;
   assert(result != nullptr);
 
-  size_t size =
-      WriteBatchInternal::ByteSize(first->batch);  // 返回 WriteBatch 的大小
+  // 返回 WriteBatch 的大小
+  size_t size = WriteBatchInternal::ByteSize(first->batch);
 
   // Allow the group to grow up to a maximum size, but if the
   // original write is small, limit the growth so we do not slow
@@ -1466,8 +1435,8 @@ WriteBatch* DBImpl::BuildBatchGroup(Writer** last_writer) {
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::MakeRoomForWrite(
-    bool force) {  // 确定是否有足够空间,进入这里时 mutex 已锁
+Status DBImpl::MakeRoomForWrite(bool force) {
+  // 确定是否有足够空间,进入这里时 mutex 已锁
   mutex_.AssertHeld();
   assert(!writers_.empty());
   // 是否允许延迟写入，是就是写入 memtable,不是就写入 immtable
@@ -1478,8 +1447,7 @@ Status DBImpl::MakeRoomForWrite(
       // Yield previous error
       s = bg_error_;
       break;
-    } else if (allow_delay && versions_->NumLevelFiles(0) >=
-                                  config::kL0_SlowdownWritesTrigger) {
+    } else if (allow_delay && versions_->NumLevelFiles(0) >= config::kL0_SlowdownWritesTrigger) {
       // We are getting close to hitting a hard limit on the number of
       // L0 files.  Rather than delaying a single write by several
       // seconds when we hit the hard limit, start delaying each
@@ -1490,8 +1458,7 @@ Status DBImpl::MakeRoomForWrite(
       env_->SleepForMicroseconds(1000);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
-    } else if (!force &&
-               (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
+    } else if (!force && (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
       // There is room in current memtable 依然有可用内存空间
       break;
     } else if (imm_ != nullptr) {
@@ -1503,14 +1470,14 @@ Status DBImpl::MakeRoomForWrite(
       // There are too many level-0 files.
       Log(options_.info_log, "Too many L0 files; waiting...\n");
       background_work_finished_signal_.Wait();
-    } else {  // memtable 已经写满，触发 compaction
+    } else {
+      // memtable 已经写满，触发 compaction
       // Attempt to switch to a new memtable and trigger compaction of old
       assert(versions_->PrevLogNumber() == 0);
-      uint64_t new_log_number =
-          versions_->NewFileNumber();  // 新的记录 log 的文件名
+      uint64_t new_log_number = versions_->NewFileNumber();  // 新的记录 log 的文件名
       WritableFile* lfile = nullptr;
-      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number),
-                                &lfile);  // 创建新的日志文件
+      // 创建新的日志文件
+      s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
         versions_->ReuseFileNumber(new_log_number);
@@ -1555,8 +1522,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
       return false;
     } else {
       char buf[100];
-      std::snprintf(buf, sizeof(buf), "%d",
-                    versions_->NumLevelFiles(static_cast<int>(level)));
+      std::snprintf(buf, sizeof(buf), "%d", versions_->NumLevelFiles(static_cast<int>(level)));
       *value = buf;
       return true;
     }
@@ -1570,9 +1536,8 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
     for (int level = 0; level < config::kNumLevels; level++) {
       int files = versions_->NumLevelFiles(level);
       if (stats_[level].micros > 0 || files > 0) {
-        std::snprintf(buf, sizeof(buf), "%3d %8d %8.0f %9.0f %8.0f %9.0f\n",
-                      level, files, versions_->NumLevelBytes(level) / 1048576.0,
-                      stats_[level].micros / 1e6,
+        std::snprintf(buf, sizeof(buf), "%3d %8d %8.0f %9.0f %8.0f %9.0f\n", level, files,
+                      versions_->NumLevelBytes(level) / 1048576.0, stats_[level].micros / 1e6,
                       stats_[level].bytes_read / 1048576.0,
                       stats_[level].bytes_written / 1048576.0);
         value->append(buf);
@@ -1591,8 +1556,7 @@ bool DBImpl::GetProperty(const Slice& property, std::string* value) {
       total_usage += imm_->ApproximateMemoryUsage();
     }
     char buf[50];
-    std::snprintf(buf, sizeof(buf), "%llu",
-                  static_cast<unsigned long long>(total_usage));
+    std::snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(total_usage));
     value->append(buf);
     return true;
   }
@@ -1637,7 +1601,7 @@ DB::~DB() = default;
 
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   *dbptr = nullptr;
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "open db {} begin,and create DBImpl begin",dbname);
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "open db {} begin,and create DBImpl begin", dbname);
   DBImpl* impl = new DBImpl(options, dbname);
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create DBImpl end");
 
@@ -1653,16 +1617,13 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     // Create new log and a corresponding memtable.
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     WritableFile* lfile;
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create LogFile {}",
-                       LogFileName(dbname, new_log_number));
-    s = options.env->NewWritableFile(LogFileName(dbname, new_log_number),
-                                     &lfile);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create LogFile {}", LogFileName(dbname, new_log_number));
+    s = options.env->NewWritableFile(LogFileName(dbname, new_log_number), &lfile);
     if (s.ok()) {
       edit.SetLogNumber(new_log_number);
       impl->logfile_ = lfile;
       impl->logfile_number_ = new_log_number;
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "log Write Init {}.log",
-                         new_log_number);
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "log Write Init {}.log", new_log_number);
       impl->log_ = new log::Writer(lfile);
       // 初始化时创建 arena ,分配 4096 + sizeof(char*) 字节空间
       SPDLOG_LOGGER_INFO(SpdLogger::Log(), "new MemTable");
@@ -1707,7 +1668,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     uint64_t number;
     FileType type;
     // 循环删除 getChildren 生成的文件
-    for (size_t i = 0; i < filenames.size();i++) {
+    for (size_t i = 0; i < filenames.size(); i++) {
       if (ParseFileName(filenames[i], &number, &type) &&
           type != kDBLockFile) {  // Lock file will be deleted at end
         Status del = env->RemoveFile(dbname + "/" + filenames[i]);

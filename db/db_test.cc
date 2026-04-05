@@ -553,52 +553,128 @@ TEST(RandTest, Uniform) {
 TEST(CustomTest, BasicWriteRead) {
   Options options;
   options.create_if_missing = true;
-  options.compression = kNoCompression;  // 禁用压缩，加快测试速度
-
-  // 数据库路径
-  std::string dbname = "/tmp/db_test";
-
-  // 打开数据库
+  options.compression = kNoCompression;
+  options.filter_policy = NewBloomFilterPolicy(10);
+  options.block_restart_interval = 2;
+  const std::string dbname = "/tmp/db_test";
   DB* db = nullptr;
-  Status status = DB::Open(options, dbname, &db);
-  if (!status.ok()) {
-    std::cerr << "Failed to open database: " << status.ToString() << std::endl;
-    return;
+  Status status = DestroyDB(dbname, options);
+  ASSERT_TRUE(status.ok());
+  status = DB::Open(options, dbname, &db);
+  ASSERT_TRUE(status.ok()) << status.ToString();
+  constexpr WriteOptions w_opt;
+  status = db->Put(w_opt, "abc", "v1");
+  status = db->Put(w_opt, "abcd", "v2");
+  status = db->Put(w_opt, "abcde", "v3");
+  status = db->Put(w_opt, "abcdef", "v4");
+  status = db->Put(w_opt, "abcdefg", "v5");
+  status = db->Delete(w_opt, "abc");
+  std::string val;
+  constexpr ReadOptions r_opt;
+  status = db->Get(r_opt, "abcd", &val);
+  ASSERT_TRUE(status.ok());
+  ASSERT_EQ(val, "v2");
+  delete db;
+  // 测试 recover
+  // std::cout << "-----------------------------------------" << std::endl;
+  // status = DB::Open(options, dbname, &db);
+  // ASSERT_TRUE(status.ok()) << status.ToString();
+  // status = db->Get(r_opt, "abcd", &val);
+  // ASSERT_TRUE(status.ok());
+  // ASSERT_EQ(val, "v2");
+  // delete db;
+}
+
+void printSeparator(int length = 80) {
+  std::cout << std::string(length, '=') << std::endl;
+}
+
+void PrintDbStat(DB * db) {
+  printSeparator();
+  std::string property;
+  std::string property_name = "leveldb.stats";
+  db->GetProperty(property_name, &property);
+  std::cout << property_name << ":\n " << property << std::endl;
+
+  std::cout << "leveldb.num-files-at-level:" << std::endl;
+  for (int level = 0; level < config::kNumLevels; ++level) {
+    std::string value;
+    char name[100];
+    std::snprintf(name, sizeof(name), "leveldb.num-files-at-level%d", level);
+    db->GetProperty(name, &property);
+    std::cout << "level " << level << ": " << property << std::endl;
   }
+  std::cout << std::endl;
+  property_name = "leveldb.sstables";
+  db->GetProperty(property_name, &property);
+  std::cout << property_name << ":\n" << property << std::endl;
+  printSeparator();
+}
 
-  try {
-    // 插入数据
-    long N = 200000;
-    for (long i = 0; i < N; ++i) {
-      std::string key = std::string("key") + std::to_string(i);
-      std::string val = std::string(1000, 'v') + std::to_string(i);
-      status = db->Put(WriteOptions(), key, val);
-      if (!status.ok()) {
-        std::cerr << "Failed to put key " << key << ": " << status.ToString() << std::endl;
-        break;
-      }
-    }
+TEST(CustomTest, BasicBatchWriteRead) {
+  // options.env 被 Env::Default() 初始化
+  Options options;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.filter_policy = NewBloomFilterPolicy(10);
+  options.block_restart_interval = 2;
 
-    // 读取数据
-    std::string val;
-    status = db->Get(ReadOptions(), "key0", &val);
-    if (status.ok()) {
-      std::cout << "key0: val " << val << std::endl;
-    } else if (status.IsNotFound()) {
-      std::cout << "key0 not found" << std::endl;
-    } else {
-      std::cerr << "Error getting key0: " << status.ToString() << std::endl;
-    }
+  const std::string dbname = "/tmp/db_test";
+  DB* db = nullptr;
+  Status status = DestroyDB(dbname, options);
+  ASSERT_TRUE(status.ok());
+  status = DB::Open(options, dbname, &db);
+  ASSERT_TRUE(status.ok()) << status.ToString();
+  constexpr WriteOptions w_opt;
+  WriteBatch batch;
 
-  } catch (const std::exception& e) {
-    std::cerr << "Exception: " << e.what() << std::endl;
-  }
-  // for (int i=0;i< 10;i++) {
-  //   std::cout << "will sleep " << 10 << " s" << std::endl;
-  //   std::this_thread::sleep_for(std::chrono::seconds(30));
-  // }
+  batch.Put("k01", "v01");
+  batch.Put("k02", "v02");
+  batch.Put("k03", "v03");
+  batch.Put("k04", "v04");
+  batch.Put("k05", "v05");
+  status = db->Write(w_opt, &batch);
+  ASSERT_TRUE(status.ok());
+  db->CompactRange(nullptr, nullptr);
+  batch.Clear();
+  batch.Put("k11", "v11");
+  batch.Put("k12", "v12");
+  batch.Put("k13", "v13");
+  batch.Put("k14", "v14");
+  batch.Put("k15", "v15");
+  status = db->Write(w_opt, &batch);
+  ASSERT_TRUE(status.ok());
+  db->CompactRange(nullptr, nullptr);
+  batch.Clear();
+  batch.Put("k21", "v21");
+  batch.Put("k22", "v22");
+  batch.Put("k23", "v23");
+  batch.Put("k24", "v24");
+  batch.Put("k25", "v25");
+  status = db->Write(w_opt, &batch);
+  ASSERT_TRUE(status.ok());
+  db->CompactRange(nullptr, nullptr);
+  batch.Clear();
+  batch.Put("k31", "v31");
+  batch.Put("k32", "v32");
+  batch.Put("k33", "v33");
+  batch.Put("k34", "v34");
+  batch.Put("k35", "v35");
+  status = db->Write(w_opt, &batch);
+  ASSERT_TRUE(status.ok());
+  db->CompactRange(nullptr, nullptr);
+  batch.Clear();
+  batch.Put("k01", "v11");
+  batch.Put("k11", "v12");
+  batch.Put("k21", "v13");
+  batch.Put("k31", "v13");
+  status = db->Write(w_opt, &batch);
+  ASSERT_TRUE(status.ok());
+  db->CompactRange(nullptr, nullptr);
+  batch.Clear();
 
-  // 关闭数据库
+  PrintDbStat(db);
+
   delete db;
 }
 
@@ -689,27 +765,6 @@ TEST_F(DBTest, SelfSimpleReadWrite) {
   db_->ReleaseSnapshot(snapshot);
 }
 
-// 实际存储顺序 barv3 foov22 foov21 foov2 foov1 goov4 ioov5
-TEST_F(DBTest, DBTest_MySelfSingle_TestFilterReadWrite) {
-  Options options = CurrentOptions();
-
-  options.compression = kNoCompression;
-  options.reuse_logs = false;                        // Small write buffer
-  options.filter_policy = NewBloomFilterPolicy(10);  // Small write buffer
-  options.block_restart_interval = 2;
-
-  Reopen(&options);
-
-  Put("abc", "v1");
-  Put("abcd", "v2");
-  Put("abcde", "v3");
-  Put("abcdef", "v4");
-  Put("abcdefg", "v5");
-  dbfull()->TEST_CompactMemTable();
-
-  std::string s1 = Get("abcd");
-}
-
 TEST_F(DBTest, ReadWrite) {
   do {
     Options op = CurrentOptions();
@@ -776,7 +831,7 @@ TEST_F(DBTest, GetFromImmutableLayer) {
   } while (ChangeOptions());
 }
 
-TEST_F(DBTest, SelfGetFromVersions) {
+TEST_F(DBTest, CustomGetFromVersions) {
   Options new_options = CurrentOptions();
   new_options.create_if_missing = true;
   new_options.filter_policy = nullptr;   // Cannot use bloom filters

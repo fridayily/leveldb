@@ -7,6 +7,8 @@
 #include "leveldb/dumpfile.h"
 #include "leveldb/env.h"
 #include "leveldb/status.h"
+#include "leveldb/spd_logger.h"
+
 
 namespace leveldb {
 namespace {
@@ -46,6 +48,8 @@ static void Usage() {
 }
 
 int main(int argc, char** argv) {
+  leveldb::SpdLogger::Log()->set_level(spdlog::level::off);
+
   leveldb::Env* env = leveldb::Env::Default();
   bool ok = true;
   if (argc < 2) {

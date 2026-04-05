@@ -41,6 +41,7 @@ void VersionEdit::Clear() {
 }
 
 void VersionEdit::EncodeTo(std::string* dst) const {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"encode edit to string, has_comparator_:{}",has_comparator_);
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_); // 将比较器名称写入dst
@@ -242,14 +243,19 @@ std::string VersionEdit::DebugString() const {
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
     r.append("\n  AddFile: ");
+    // 层级
     AppendNumberTo(&r, new_files_[i].first);
     r.append(" ");
+    // 文件编号
     AppendNumberTo(&r, f.number);
     r.append(" ");
+    // 文件大小
     AppendNumberTo(&r, f.file_size);
     r.append(" ");
+    // 最小key
     r.append(f.smallest.DebugString());
     r.append(" .. ");
+    // 最大key
     r.append(f.largest.DebugString());
   }
   r.append("\n}\n");

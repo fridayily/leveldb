@@ -9,11 +9,20 @@
 namespace leveldb {
 class SpdLogger {
  public:
+  // static std::shared_ptr<spdlog::logger>& Log() {
+  //   static std::shared_ptr<spdlog::logger> console_logger =
+  //       spdlog::stdout_color_mt("console");
+  //   console_logger->set_pattern("%m-%d %H:%M:%S.%e %s:%# %! [%t] %v");
+  //   console_logger->set_level(spdlog::level::info);
+  //   return console_logger;
+  // }
   static std::shared_ptr<spdlog::logger>& Log() {
-    static std::shared_ptr<spdlog::logger> console_logger =
-        spdlog::stdout_color_mt("console");
-    console_logger->set_pattern("%m-%d %H:%M:%S.%e %s:%# %! [%t] %v");
-    console_logger->set_level(spdlog::level::info);
+    static std::shared_ptr<spdlog::logger> console_logger = []() {
+      auto logger = spdlog::stdout_color_mt("console");
+      logger->set_pattern("%m-%d %H:%M:%S.%e %s:%# %! [%t] %v");
+      logger->set_level(spdlog::level::info);
+      return logger;
+    }();  // 注意这里的 ()，表示立即执行 lambda
     return console_logger;
   }
 };

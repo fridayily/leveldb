@@ -395,7 +395,7 @@ LRUCache::LRUCache() : capacity_(0), usage_(0) {
 }
 
 LRUCache::~LRUCache() {
-  //  printf(" ~LRUCache 调用\n");
+  // SPDLOG_LOGGER_INFO(SpdLogger::Log(), "~LRUCache");
   assert(in_use_.next == &in_use_);  // Error if caller has an unreleased handle
   for (LRUHandle* e = lru_.next; e != &lru_;) {
     LRUHandle* next = e->next;

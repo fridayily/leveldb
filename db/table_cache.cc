@@ -26,8 +26,9 @@ static void DeleteEntry(const Slice& key, void* value) {
 }
 
 static void UnrefEntry(void* arg1, void* arg2) {
-  Cache* cache = reinterpret_cast<Cache*>(arg1);              // arg1是一个cache对象
-  Cache::Handle* h = reinterpret_cast<Cache::Handle*>(arg2);  // arg2是一个handle
+  // arg1是一个cache对象, arg2是一个handle
+  Cache* cache = reinterpret_cast<Cache*>(arg1);
+  Cache::Handle* h = reinterpret_cast<Cache::Handle*>(arg2);
   cache->Release(h);
 }
 
@@ -38,12 +39,18 @@ TableCache::TableCache(const std::string& dbname, const Options& options, int en
 
 TableCache::~TableCache() { delete cache_; }
 
+/*
+ * 每次写入 ldb 文件都会重新打开，验证 ldb 文件是否合法
+ * 并解析 ldb 文件的索引信息实例化一个 TableFile 实例，并将其存到 TableCache 中
+ * 这样后续查找时可以避免重复解析索引信息
+ */
 Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Handle** handle) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "FindTable: add tablefile to TableCache");
   Status s;
   char buf[sizeof(file_number)];  // sizeof(file_number)
   EncodeFixed64(buf, file_number);
   Slice key(buf, sizeof(buf));
-  // 在缓存中查找 key, 即ldb 文件的编号，value 是 Table 类型
+  // 在缓存中查找 key, 即 ldb 文件的编号，value 是 Table 类型
   *handle = cache_->Lookup(key);
   // 如果 Cache 中找不到key，从文件中查找 .ldb 文件打开
   if (*handle == nullptr) {
@@ -59,7 +66,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Ha
       }
     }
     if (s.ok()) {
-      // 打开文件时构造了 index_block,meataindex_block,filter_block
+      // 打开文件时构造了 index_block,metaindex_block,filter_block
       s = Table::Open(options_, file, file_size, &table);
     }
 
@@ -73,8 +80,8 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Ha
       TableAndFile* tf = new TableAndFile;
       tf->file = file;
       tf->table = table;
-      //  插入的 key 为 ldb 文件的id ,value 为 TableAndFile 实例
-      // TableCache::Get中会调用 cache 中的tf
+      // 插入的 key 为 ldb 文件的 id ,value 为 TableAndFile 实例, 该实例已经解析了ldb 文件的索引信息
+      // TableCache::Get中会调用 cache 中的 tf
       *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
     }
   }
@@ -93,9 +100,14 @@ Iterator* TableCache::NewIterator(const ReadOptions& options, uint64_t file_numb
   if (!s.ok()) {
     return NewErrorIterator(s);
   }
-  // handle 是插入 file_numble,TableAndFile 到 cache 中后返回的实例，这里取出 table
+  // handle (LRUHandle 类型) 是插入 file_number, TableAndFile 到 cache 中后返回的实例，这里取出 table
   Table* table = reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table;
-  Iterator* result = table->NewIterator(options);  // 一个二级迭代器，一个迭代index,一个data
+  // 一个二级迭代器，一个迭代index,一个data
+  Iterator* result = table->NewIterator(options);
+  /*
+   * 将 handle 加入一个 cleanup_head_ 中
+   * 当迭代器析构时，会自动调用所设置的删除函数
+   */
   result->RegisterCleanup(&UnrefEntry, cache_, handle);
   if (tableptr != nullptr) {
     *tableptr = table;

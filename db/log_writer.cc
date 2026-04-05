@@ -40,9 +40,7 @@ static const char* RecordTypeToString(RecordType t) {
   }
 }
 
-Writer::Writer(WritableFile* dest) : dest_(dest), block_offset_(0) {
-  InitTypeCrc(type_crc_);
-}
+Writer::Writer(WritableFile* dest) : dest_(dest), block_offset_(0) { InitTypeCrc(type_crc_); }
 
 Writer::Writer(WritableFile* dest, uint64_t dest_length)
     : dest_(dest), block_offset_(dest_length % kBlockSize) {
@@ -52,7 +50,7 @@ Writer::Writer(WritableFile* dest, uint64_t dest_length)
 Writer::~Writer() = default;
 // 将要写的数据添加到log 中，32K一个block
 Status Writer::AddRecord(const Slice& slice) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "size: {}",slice.size());
   const char* ptr = slice.data();
   size_t left = slice.size();  // 数据剩余未写入的字节数
 
@@ -64,15 +62,14 @@ Status Writer::AddRecord(const Slice& slice) {
   do {
     // leftover 当前块剩余可用空间
     // 如果上一次刚好写完一个block, 还有数据要写，这里 leftover=0
-    const int leftover =
-        kBlockSize -
-        block_offset_;  // kBlockSize 默认大小 32K, block_offset_
-                        // 记录已保存的日志偏移量，这里计算当前block 可用长度
+    const int leftover = kBlockSize - block_offset_;
+    // kBlockSize 默认大小 32K, block_offset_
+    // 记录已保存的日志偏移量，这里计算当前block 可用长度
     assert(leftover >= 0);
-    if (leftover < kHeaderSize) {  // leftover= kHeaderSzie 是依然可以写个""
+    if (leftover < kHeaderSize) {  // leftover= kHeaderSize 是依然可以写个""
       // Switch to a new block
-      if (leftover >
-          0) {  // 如果剩余的空间大于0 小于 KHeaderSize,将剩余空间用0填充
+      if (leftover > 0) {
+        // 如果剩余的空间大于0 小于 KHeaderSize,将剩余空间用0填充
         // Fill the trailer (literal below relies on kHeaderSize being 7)
         static_assert(kHeaderSize == 7, "");
         dest_->Append(Slice("\x00\x00\x00\x00\x00\x00", leftover));
@@ -82,11 +79,11 @@ Status Writer::AddRecord(const Slice& slice) {
 
     // Invariant: we never leave < kHeaderSize bytes in a block.
     // 不允许剩余空间小于 kHeaderSize
-    assert(kBlockSize - block_offset_ - kHeaderSize >=
-           0);  // block_offset_ 可能是初始化的0,可能是上一行重置
+    // block_offset_ 可能是初始化的0,可能是上一行重置
+    assert(kBlockSize - block_offset_ - kHeaderSize >= 0);
 
-    const size_t avail = kBlockSize - block_offset_ - kHeaderSize;  // 剩余可用
-    // left 剩余未写入的数据总量, avail: 当前 block 中可用于数据写入的空间大小
+    const size_t avail = kBlockSize - block_offset_ - kHeaderSize;
+    // 剩余可用 left 剩余未写入的数据总量, avail: 当前 block 中可用于数据写入的空间大小
     // fragment_length 本次可以写入的片段的大小
     const size_t fragment_length = (left < avail) ? left : avail;
 
@@ -104,7 +101,7 @@ Status Writer::AddRecord(const Slice& slice) {
       type = kMiddleType;
     }
 
-    // 每次写入data的长度或者 剩余可写空间长度
+    // 每次写入data的长度或者剩余可写空间长度
     s = EmitPhysicalRecord(type, ptr, fragment_length);
     // ptr 可能是个很长的字符串,每次最多只处理 kBlockSize 字符
     ptr += fragment_length;
@@ -115,15 +112,13 @@ Status Writer::AddRecord(const Slice& slice) {
   return s;
 }
 
-Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr,
-                                  size_t length) {
+Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t length) {
   //    spdlog::info("EmitPhysicalRecord {}", int(t));
   //  std::cout << "EmitPhysicalRecord " << t << std::endl;
   //  SpdLogger::Log()->debug("EmitPhysicalRecord {}", int(t));
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"emit record type {}", RecordTypeToString(t));
-  assert(length <= 0xffff);  // Must fit in two bytes // 小于 64K
-  assert(block_offset_ + kHeaderSize + length <=
-         kBlockSize);  // 是否有足够的空间写
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "emit {} record", RecordTypeToString(t));
+  assert(length <= 0xffff);                                    // Must fit in two bytes // 小于 64K
+  assert(block_offset_ + kHeaderSize + length <= kBlockSize);  // 是否有足够的空间写
 
   // Format the header
   char buf[kHeaderSize];
@@ -134,8 +129,8 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr,
   // Compute the crc of the record type and the payload.
   // type_crc_[]是已经计算好的    type 和 data 是一起计算 crc 的
   uint32_t crc = crc32c::Extend(type_crc_[t], ptr, length);  // 计算数据的crc
-  crc = crc32c::Mask(crc);  // Adjust for storage
-  EncodeFixed32(buf, crc);  // 将crc 存入buf的前面4字节
+  crc = crc32c::Mask(crc);                                   // Adjust for storage
+  EncodeFixed32(buf, crc);                                   // 将crc 存入buf的前面4字节
 
   // Write the header and the payload
   // 写入空字符串时也要写 KHeaderSize, 然后写0长度数据
@@ -144,7 +139,8 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr,
   if (s.ok()) {
     s = dest_->Append(Slice(ptr, length));  // 写Data到dest_.buf_
     if (s.ok()) {
-      s = dest_->Flush();  // Flush 有多种实现，有的写磁盘，有的直接返回OK
+      // Flush 有多种实现，有的写磁盘，有的直接返回OK
+      s = dest_->Flush();
     }
   }
   block_offset_ += kHeaderSize + length;  // 移动写指针

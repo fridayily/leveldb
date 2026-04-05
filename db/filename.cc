@@ -125,13 +125,13 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   // Remove leading "dbname/" and add newline to manifest file name
   // 根据传入的编号获取指定的 MANIFEST 文件名
   std::string manifest = DescriptorFileName(dbname, descriptor_number);
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"get manifest filename {}",manifest);
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"save {} to CURRENT file",manifest);
   Slice contents = manifest;
   assert(contents.starts_with(dbname + "/"));
   contents.remove_prefix(dbname.size() + 1);
   // 创建一个临时文件 dbname/000001.dbtmp
   std::string tmp = TempFileName(dbname, descriptor_number);
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"create tmp file {}",tmp);
+  // SPDLOG_LOGGER_INFO(SpdLogger::Log(),"create tmp file {}",tmp);
   // 去掉 dbname 后的新建的文件名 MANIFEST 写到临时文件中
   // 文件不存在会新建文件
   Status s = WriteStringToFileSync(env, contents.ToString() + "\n", tmp);

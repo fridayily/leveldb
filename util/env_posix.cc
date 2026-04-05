@@ -147,8 +147,10 @@ class PosixSequentialFile final : public SequentialFile {
   Status Read(size_t n, Slice* result, char* scratch) override {
     Status status;
     while (true) {
-      ::ssize_t read_size = ::read(fd_, scratch, n);  // 尝试读取n个字节到scratch
-      if (read_size < 0) {                            // Read error.
+      // 尝试读取 n 个字节到 scratch
+      ::ssize_t read_size = ::read(fd_, scratch, n);
+      if (read_size < 0) {
+        // Read error.
         // 通过read读数据，当前fd对应的缓冲区没有数据可读时，进程被阻塞，
         // 此时如果向该进程发送信号，read函数返回-1，errno=EINTR
         if (errno == EINTR) {
@@ -331,7 +333,8 @@ class PosixWritableFile final : public WritableFile {
     // 写的数据较多，缓存区写满，还有数据要写入，先将缓存区的数据写到文件
     // 写完后会将偏移量置为 0
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write buffer data to file");
-    Status status = FlushBuffer();  // 将在缓冲区的数据写到文件中
+    // 将在缓冲区的数据写到文件中
+    Status status = FlushBuffer();
     if (!status.ok()) {
       return status;
     }
@@ -353,7 +356,7 @@ class PosixWritableFile final : public WritableFile {
   }
 
   Status Close() override {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Close file, FlushBuffer");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Close file {}, FlushBuffer", filename_);
     Status status = FlushBuffer();
     const int close_result = ::close(fd_);
     if (close_result < 0 && status.ok()) {
@@ -398,6 +401,7 @@ class PosixWritableFile final : public WritableFile {
   // WriteUnbuffered 用于直接将数据写入文件描述符
   Status WriteUnbuffered(const char* data, size_t size) {
     while (size > 0) {
+      // 使用 ::write 系统调用，绕过标准库缓冲
       ssize_t write_result = ::write(fd_, data, size);
       if (write_result < 0) {
         if (errno == EINTR) {
@@ -406,7 +410,8 @@ class PosixWritableFile final : public WritableFile {
         }
         return PosixError(filename_, errno);
       }
-      data += write_result;  // 移动指针,不是加长度
+      // 移动指针,不是加长度
+      data += write_result;
       size -= write_result;
     }
     return Status::OK();
@@ -691,6 +696,8 @@ class PosixEnv : public Env {
   }
 
   Status RemoveFile(const std::string& filename) override {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "RemoveFile {}", filename);
+
     if (::unlink(filename.c_str()) != 0) {  // 删除已存在文件
       return PosixError(filename, errno);
     }
@@ -698,6 +705,8 @@ class PosixEnv : public Env {
   }
 
   Status CreateDir(const std::string& dirname) override {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "CreateDir {}", dirname);
+
     if (::mkdir(dirname.c_str(), 0755) != 0) {  // 目录 读写执行权限
       return PosixError(dirname, errno);
     }
@@ -705,6 +714,8 @@ class PosixEnv : public Env {
   }
 
   Status RemoveDir(const std::string& dirname) override {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "RemoveDir {}", dirname);
+
     if (::rmdir(dirname.c_str()) != 0) {
       return PosixError(dirname, errno);
     }
@@ -722,6 +733,7 @@ class PosixEnv : public Env {
   }
 
   Status RenameFile(const std::string& from, const std::string& to) override {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Rename from {} to {}", from, to);
     if (std::rename(from.c_str(), to.c_str()) != 0) {
       return PosixError(from, errno);
     }
@@ -729,6 +741,8 @@ class PosixEnv : public Env {
   }
 
   Status LockFile(const std::string& filename, FileLock** lock) override {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "LockFile {}", filename);
+
     *lock = nullptr;
     // 创建 LOCK 文件
     int fd = ::open(filename.c_str(), O_RDWR | O_CREAT | kOpenBaseFlags, 0644);
@@ -758,6 +772,7 @@ class PosixEnv : public Env {
   Status UnlockFile(FileLock* lock) override {
     PosixFileLock* posix_file_lock = static_cast<PosixFileLock*>(lock);
     if (LockOrUnlock(posix_file_lock->fd(), false) == -1) {
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "UnlockFile {}", posix_file_lock->filename());
       return PosixError("unlock " + posix_file_lock->filename(), errno);
     }
     locks_.Remove(posix_file_lock->filename());
@@ -825,7 +840,26 @@ class PosixEnv : public Env {
 
  private:
   void BackgroundThreadMain();
-  // 后台主线程函数入口点
+  /*
+   *  后台主线程函数入口点，有主线程创建的新线程
+   *
+   *  note: static 函数的特点
+   *    1. 文件作用域
+   *      static 函数只在当前文件内可见，不能被其他文件通过 extern 声明调用。
+   *      不同文件中可以定义同名的 static 函数，互不影响。
+   *    2. 类作用域
+   *      在类中定义的 static 成员函数属于类，而不是类的实例
+   *      调用时不需要类的实例，可以通过 类名::函数名 直接调用。
+   *    3. 内存分配与生命周期
+   *      static 函数的代码存储在静态存储区（代码段），而非栈或堆。
+   *      程序启动时加载，程序结束时释放，与程序同生命周期。
+   *      整个程序中只存在一份 static 函数的代码副本，无论调用多少次。
+   *    4. 类静态函数
+   *      只能访问静态成员：只能访问类的静态成员变量和静态成员函数
+   *      无 this 指针：不能访问非静态成员，因为没有隐含的 this 指针。
+   *      无法被覆盖：静态函数不能被继承和重写，缺乏多态性。
+
+   */
   static void BackgroundThreadEntryPoint(PosixEnv* env) { env->BackgroundThreadMain(); }
 
   // Stores the work item data in a Schedule() call.
@@ -843,8 +877,8 @@ class PosixEnv : public Env {
   };
 
   port::Mutex background_work_mutex_;
-  port::CondVar background_work_cv_
-      GUARDED_BY(background_work_mutex_);  // 绑定互斥锁 background_work_mutex_
+  port::CondVar background_work_cv_ GUARDED_BY(background_work_mutex_);
+  // 绑定互斥锁 background_work_mutex_
   bool started_background_thread_ GUARDED_BY(background_work_mutex_);
 
   std::queue<BackgroundWorkItem> background_work_queue_ GUARDED_BY(background_work_mutex_);
@@ -885,60 +919,86 @@ int MaxOpenFiles() {
 PosixEnv::PosixEnv()
     : background_work_cv_(&background_work_mutex_),  // 初始化条件变量
       started_background_thread_(false),             // 默认不能创建消费者线程
-      mmap_limiter_(MaxMmaps()),                     // 限制最大的mmap数量
-      fd_limiter_(MaxOpenFiles()) {}                 // 限制能打开的最大文件描述符
-// 任务调度器，生产者，将要执行的<函数，传入参数>将任务添加到队列中
+      mmap_limiter_(MaxMmaps()),         // 限制最大的mmap数量
+      fd_limiter_(MaxOpenFiles()) {}     // 限制能打开的最大文件描述符
+
+// note: 主线程调用, 主要两个功能
+//    没有后台线程时创建后台线程，并添加任务到工作队列
+//    有后台线程时，只添加任务到工作队列
 void PosixEnv::Schedule(void (*background_work_function)(void* background_work_arg),
                         void* background_work_arg) {
   background_work_mutex_.Lock();
-  // 如果没有开启后台线程，则创建后台线程，保证只有一个消费者线程
+  // 如果没有开启后台线程，则创建后台线程，保证只有一个消费者线程在工作
   // Start the background thread, if we haven't done so already.
-  if (!started_background_thread_) {  // 默认false
+  if (!started_background_thread_) {
     started_background_thread_ = true;
-    std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint,
-                                  this);  // 创建一个线程任务
+    std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
     background_thread.detach();
   }
-  // 如果已经开启线程，如果任务队列不为空，消费者线程不处于等待状态，进入这里说明锁已释放，消费者线程在执行任务
-  // 发送信号写在这里是因为 BackgroundThreadMain
-  // 函数要先获得锁再判断任务队列是否为空 If the queue is empty, the background
-  // thread may be waiting for work.
-  if (background_work_queue_.empty()) {  // 如果工作队列不为空，则消费者线程不会等待
-    background_work_cv_.Signal();        // 发送信号时不关心是否有线程在等待
+
+  // note: 执行到这里说明已经获得锁
+  //   case1: 如果任务队列为空
+  //     给消费者线程发送信号，消费者线程可能在 background_work_cv_.Wait() 等待，
+  //     但是生产者线程(本线程)现在持有锁，被唤醒的消费者线程继续阻塞
+  //     然后本线程将任务添加到任务队列中，这样消费者线程被唤醒后就能立即处理
+  //   case2: 如果队列不为空
+  //     说明后台线程已经在处理任务，不需要额外唤醒
+  //
+  // note: case1: 如果任务队列为空，消费者在等待，必须调用一次 signal 方法
+  //       case2: 如果任务队列非空，消费者在执行任务，不会处于等待状态，无须调用 signal 方法，
+  //              即不需要每次插入任务调用一次 signal 方法
+  // If the queue is empty, the background thread may be waiting for work.
+  if (background_work_queue_.empty()) {
+    background_work_cv_.Signal();
   }
   // 插入待处理任务，生产者
   background_work_queue_.emplace(background_work_function, background_work_arg);
   // 释放锁，消费者开始消费，如果消费者执行任务时间较长，该线程可以重新获得锁，继续添加任务
   background_work_mutex_.Unlock();
 }
-// 后台主线程，消费者,该线程是一个常驻线程，可以不停的向 background_work_queue_
-// 提交任务，执行完成之后就 wait
+// note: 后台主线程（消费者），该线程是一个常驻线程，可以不停的向 background_work_queue_
+//   取出任务，执行完成之后就 wait
 void PosixEnv::BackgroundThreadMain() {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Create background thread");
   while (true) {
-    background_work_mutex_.Lock();  // 这里会等待上面Schedule 函数background_work_mutex_.Unlock()
-                                    // 释放锁，才执行下面代码
+    // 这里会等待上面 Schedule 函数 background_work_mutex_.Unlock() 释放锁，才执行下面代码
+    background_work_mutex_.Lock();
     // 这里的共享变量是 background_work_mutex_
     // Wait until there is work to be done. background_work_queue_
     // 保存的是函数和要执行的参数
-    while (background_work_queue_
-               .empty()) {  // 后台工作队列是空的，就一直等待,直到有任务需要处理，这里是一个消费者
-      // wait 后线程进入休眠状态，被放入一个等待队列中，等待信号
-      background_work_cv_.Wait();  // 等待生产者发送信号，此时其他线程可能在写数据
-      // wait 后是先释放锁 background_work_mutex_，此时生产者 Schedule 持有该锁
-      // Schedule(生产者) 中发送信号后，锁并没有被释放，消费者还需要 wait
-      // Schedule 释放锁后，生产者消费者重新竞争锁
-      // 如果消费者线程获得锁 ，即 background_work_cv_ 重新获得锁，跳出 wait
-      //        若发现 background_work_queue_不为空，跳出 while 循环
-      // 如果生产者线程获得锁，则继续将任务添加到任务队列中
+    while (background_work_queue_.empty()) {
+      /*
+       * note: wait 原理
+       *  1. wait 方法首先会原子性地释放互斥锁，允许其他线程获取锁并修改共享资源
+       *  2. 线程将自己加入*条件变量的等待队列*，进入阻塞状态（休眠），此时线程不再占用 CPU 资源，直到被其他线程唤醒。
+       *  3. 当其他线程调用 signal() 或 broadcast() 时，等待队列中的一个或多个线程会被唤醒
+       *    被唤醒的线程会尝试重新获取互斥锁（这是阻塞操作，需要等待其他线程释放锁）
+       *    只有成功获取锁后，wait 方法才会返回。
+       *  4. wait 方法返回后，线程重新持有互斥锁，可以安全地检查条件并操作共享资源
+       *
+       * note: 这里的等待策略
+       *  1. 当生产者发送信号时，它仍然持有 background_work_mutex_ 锁
+       *  2. 消费者被唤醒后，会尝试重新获取锁，但此时锁仍被生产者持有，消费者持续阻塞
+       *  3. 生产者会继续执行，将任务添加到队列中
+       *  4. 生产者释放锁后，消费者才能获取锁
+       *  5. 此时队列中已经有了任务，消费者检查队列时不会为空
+       */
+      background_work_cv_.Wait();
     }
 
     assert(!background_work_queue_.empty());
-    auto background_work_function = background_work_queue_.front().function;  // 获取函数
-    void* background_work_arg = background_work_queue_.front().arg;           // 获取参数
-    background_work_queue_.pop();                                             // 弹出已取的元素
-
-    background_work_mutex_.Unlock();  // 解锁后才开始执行任务，生产者队列继续添加任务
+    // 获取函数
+    auto background_work_function = background_work_queue_.front().function;
+    // 获取参数
+    void* background_work_arg = background_work_queue_.front().arg;
+    // 弹出已取的元素
+    background_work_queue_.pop();
+    // 解锁后才开始执行任务，生产者队列继续添加任务
+    background_work_mutex_.Unlock();
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "launch background work function begin: BGWork()");
     background_work_function(background_work_arg);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "launch background work function end");
+
   }
 }
 

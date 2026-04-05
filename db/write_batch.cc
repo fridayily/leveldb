@@ -60,8 +60,7 @@ Status WriteBatch::Iterate(Handler* handler) const {
     input.remove_prefix(1);  // 去掉 tag
     switch (tag) {
       case kTypeValue:
-        if (GetLengthPrefixedSlice(&input, &key) &&
-            GetLengthPrefixedSlice(&input, &value)) {
+        if (GetLengthPrefixedSlice(&input, &key) && GetLengthPrefixedSlice(&input, &value)) {
           handler->Put(key, value);
         } else {
           return Status::Corruption("bad WriteBatch Put");
@@ -86,14 +85,13 @@ Status WriteBatch::Iterate(Handler* handler) const {
   }
 }
 
-
 void WriteBatch::HelperPrint() {
   Slice input(rep_);
   uint64_t seq_number = SequenceNumber(DecodeFixed64(rep_.data()));
-  uint32_t key_cnt =  DecodeFixed32(rep_.data() + 8);
+  uint32_t key_cnt = DecodeFixed32(rep_.data() + 8);
   std::cout << "SequenceNumber: " << seq_number << " keyCnt: " << key_cnt << " " << std::endl;
   if (input.size() < kHeader) {
-    std::fprintf(stderr,"malformed WriteBatch (too small)");
+    std::fprintf(stderr, "malformed WriteBatch (too small)");
   }
   // 待插入的一批数据中 sequence + cnt + [KeyType + keylen + key + vlen + v] +
   // [KeyType + keylen + key + vlen + v]
@@ -106,27 +104,27 @@ void WriteBatch::HelperPrint() {
     input.remove_prefix(1);  // 去掉 tag
     switch (tag) {
       case kTypeValue:
-        if (GetLengthPrefixedSlice(&input, &key) &&
-            GetLengthPrefixedSlice(&input, &value)) {
-            } else {
-              std::fprintf(stderr,"bad WriteBatch Put");
-            }
+        if (GetLengthPrefixedSlice(&input, &key) && GetLengthPrefixedSlice(&input, &value)) {
+        } else {
+          std::fprintf(stderr, "bad WriteBatch Put");
+        }
         break;
       case kTypeDeletion:
         if (GetLengthPrefixedSlice(&input, &key)) {
         } else {
-          std::fprintf(stderr,"bad WriteBatch Delete");
+          std::fprintf(stderr, "bad WriteBatch Delete");
         }
         break;
       default:
-        std::fprintf(stderr,"unknown WriteBatch tag");
+        std::fprintf(stderr, "unknown WriteBatch tag");
     }
-    std::string key_type = tag == kTypeValue ?  "kTypeValue" : "kTypeDeletion";
-    std::cout << key_type << " " << key.size() << " " << key.ToString() << " "<< value.size() << " " << value.ToString() << std::endl;
+    std::string key_type = tag == kTypeValue ? "kTypeValue" : "kTypeDeletion";
+    std::cout << key_type << " " << key.size() << " " << key.ToString() << " " << value.size()
+              << " " << value.ToString() << std::endl;
   }
   if (found != WriteBatchInternal::Count(this)) {
     // found 的个数应该等于 writebatch 中的个数
-    std::fprintf(stderr,"WriteBatch has wrong count");
+    std::fprintf(stderr, "WriteBatch has wrong count");
   }
 
   std::cout << std::endl;
@@ -142,8 +140,7 @@ void WriteBatchInternal::SetCount(WriteBatch* b, int n) {
 }
 
 SequenceNumber WriteBatchInternal::Sequence(const WriteBatch* b) {
-  return SequenceNumber(
-      DecodeFixed64(b->rep_.data()));  // 取出 8 个字节的 sequence
+  return SequenceNumber(DecodeFixed64(b->rep_.data()));  // 取出 8 个字节的 sequence
 }
 // 写入序列号，
 void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
@@ -165,9 +162,7 @@ void WriteBatch::Delete(const Slice& key) {
   PutLengthPrefixedSlice(&rep_, key);
 }
 
-void WriteBatch::Append(const WriteBatch& source) {
-  WriteBatchInternal::Append(this, &source);
-}
+void WriteBatch::Append(const WriteBatch& source) { WriteBatchInternal::Append(this, &source); }
 
 namespace {
 class MemTableInserter : public WriteBatch::Handler {
@@ -176,10 +171,10 @@ class MemTableInserter : public WriteBatch::Handler {
   MemTable* mem_;
 
   void Put(const Slice& key, const Slice& value) override {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Add {} {} to mem", key.ToString(),
-                       value.ToString());
-    mem_->Add(sequence_, kTypeValue, key, value);  // 存入 一个Internal key
-    sequence_++;                                   // 每存一次，sequence +1
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Add {} {} to mem", key.ToString(), value.ToString());
+    // 存入 一个Internal key 每存一次，sequence +1
+    mem_->Add(sequence_, kTypeValue, key, value);
+    sequence_++;
   }
   void Delete(const Slice& key) override {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Delete {} from mem", key.ToString());
@@ -190,11 +185,13 @@ class MemTableInserter : public WriteBatch::Handler {
 }  // namespace
 
 Status WriteBatchInternal::InsertInto(const WriteBatch* b, MemTable* memtable) {
-  MemTableInserter inserter;  // memtable插入器
-  inserter.sequence_ =
-      WriteBatchInternal::Sequence(b);  // 前 8 个字节存 sequence_
+  // memtable插入器
+  MemTableInserter inserter;
+  // 前 8 个字节存 sequence_
+  inserter.sequence_ = WriteBatchInternal::Sequence(b);
   inserter.mem_ = memtable;
-  return b->Iterate(&inserter);  // MemTableInserter 继承自 WriteBatch::Handler
+  // MemTableInserter 继承自 WriteBatch::Handler
+  return b->Iterate(&inserter);
 }
 
 void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {

@@ -17,7 +17,8 @@ static Slice GetLengthPrefixedSlice(const char* data) {
   uint32_t len;
   const char* p = data; // 地址的开头存的是 value 的长度
   p = GetVarint32Ptr(p, p + 5, &len);  // +5: we assume "p" is not corrupted 取出长度
-  return Slice(p, len); // len是 internal_key 的长度，p 中现在还包含 internal_key + val_len + val
+  // p 是    len 是 internal_key 的长度，p 中现在还包含 internal_key + val_len + val
+  return Slice(p, len);
 }
 
 MemTable::MemTable(const InternalKeyComparator& comparator) // 初始化 skip_list

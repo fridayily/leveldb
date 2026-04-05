@@ -324,7 +324,12 @@ class VersionSet {
   WritableFile* descriptor_file_;
   log::Writer* descriptor_log_;
   Version dummy_versions_;  // Head of circular doubly-linked list of versions.
-  // 指向 dummy_versions 的前一个
+  /*
+   * 指向 dummy_versions 的前一个, 用于指向数据库的当前版本
+   *   当需要创建新版本时，VersionSet 会创建一个新的 Version 对象
+   *   通过 AppendVersion 方法将新版本添加到版本链表中
+   *   同时将 current_ 指针更新为指向这个新版本
+   */
   Version* current_;
 
   // Per-level key at which the next compaction at that level should start.

@@ -183,12 +183,23 @@ class DBImpl : public DB {
   MemTable* mem_;
   MemTable* imm_ GUARDED_BY(mutex_);  // Memtable being compacted
   std::atomic<bool> has_imm_;         // So bg thread can detect non-null imm_
+  /*
+   * WritableFile* logfile_
+   *     抽象文件接口, 底层文件 I/O 操作, 提供基本的文件写入能力
+   * log::Writer* log_
+   *     日志写入器, 日志格式与编码, 提供结构化的日志记录能力
+   */
   WritableFile* logfile_;
   uint64_t logfile_number_ GUARDED_BY(mutex_);
   log::Writer* log_;
   uint32_t seed_ GUARDED_BY(mutex_);  // For sampling.
 
   // Queue of writers.
+  /*
+   * std::deque（双端队列）
+   *    两端插入/删除
+   *    分段连续：内部由多个连续内存块组成（而非单一连续数组），每个块大小固定。
+   */
   std::deque<Writer*> writers_ GUARDED_BY(mutex_);
   WriteBatch* tmp_batch_ GUARDED_BY(mutex_);
   // 如果列表初始化中没有明确初始化

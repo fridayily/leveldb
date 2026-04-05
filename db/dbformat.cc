@@ -113,7 +113,7 @@ void InternalFilterPolicy::CreateFilter(const Slice* keys, int n,
 bool InternalFilterPolicy::KeyMayMatch(const Slice& key, const Slice& f) const {
   return user_policy_->KeyMayMatch(ExtractUserKey(key), f);
 }
-//  根据user_key 组装成 lookup key，s指定版本
+//  根据 user_key 组装成 lookup key，s指定版本
 LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
   size_t usize = user_key.size();
   size_t needed = usize + 13;  // A conservative estimate 保守估计
@@ -123,12 +123,15 @@ LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
   } else {
     dst = new char[needed]; // 否则分配需要的空间
   }
-  start_ = dst; // 记录起始位置
-  dst = EncodeVarint32(dst, usize + 8); // 将计算的 internal_key_size(user_key + value_type + sequenceNum) 存入dst
+  // 记录起始位置
+  start_ = dst;
+  // 将计算的 internal_key_size(user_key + value_type + sequenceNum) 存入dst
+  dst = EncodeVarint32(dst, usize + 8);
   kstart_ = dst; // 记录 internal_key 的开始位置
   std::memcpy(dst, user_key.data(), usize); // 将user_key 存入 dst
   dst += usize; // 指针偏移
-  EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek)); // 将打包好的 sequence + type 存入 dst
+  // 将打包好的 sequence + type 存入 dst
+  EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
   dst += 8; // 指针偏移
   end_ = dst; // 存入  internal_key 结束位置
 }

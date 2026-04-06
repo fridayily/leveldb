@@ -118,20 +118,34 @@ int FindFile(const InternalKeyComparator& icmp, const std::vector<FileMetaData*>
   return right;  // 返回的是一个索引
 }
 // AfterFile 传入的 key 与文件中最大值比较
-// 如果要查找的 user_key 在指定文件 之后，返回 true
+// 如果要查找的 user_key 在大于 f 中的最大key，返回 true
 static bool AfterFile(const Comparator* ucmp, const Slice* user_key, const FileMetaData* f) {
   // null user_key occurs before all keys and is therefore never after *f
   return (user_key != nullptr && ucmp->Compare(*user_key, f->largest.user_key()) > 0);
 }
 // beforeFile 传入的key与 文件中最小值比较
-// 指定的user_key 小于 f 中的最小key
-// 如果要查找的 user_key 在指定文件 之前，返回 true
+// 如果要查找的 user_key 在小于 f 中的最小key，返回 true
 static bool BeforeFile(const Comparator* ucmp, const Slice* user_key, const FileMetaData* f) {
   // null user_key occurs after all keys and is therefore never before *f
   // 传入的 user_key 与文件中最小的 key 的 user_key 比较
   return (user_key != nullptr && ucmp->Compare(*user_key, f->smallest.user_key()) < 0);
 }
 
+/*
+* disjoint_sorted_files 为 false, 文件有重叠
+* 假设 level0 有 2 文件  [5,6,7,9] [9,10,11,12]
+*     smallest_user_key = 10, largest_user_key = 14
+*     第一轮循环
+*        AfterFile: 10 > 9 true => 最小值都大于f 的最大值，说明无重叠，跳出循环
+*     第二轮循环
+*        AfterFile: 10 > 12 false
+*        BeforeFile: 14 < 9 false
+*        说明有重叠
+*
+*  disjoint_sorted_files 为 true，文件无重叠
+*     表示当前层级的文件是不相交且有序的
+*     可以使用二分查找来高效地检查是否与指定的 key 范围重叠
+*/
 bool SomeFileOverlapsRange(const InternalKeyComparator& icmp, bool disjoint_sorted_files,
                            const std::vector<FileMetaData*>& files, const Slice* smallest_user_key,
                            const Slice* largest_user_key) {
@@ -142,8 +156,7 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp, bool disjoint_sort
     // Need to check against all files
     for (size_t i = 0; i < files.size(); i++) {
       const FileMetaData* f = files[i];
-      if (AfterFile(ucmp, smallest_user_key, f) || BeforeFile(ucmp, largest_user_key,
-                                                              f)) {  // 两个都为false，函数返回true
+      if (AfterFile(ucmp, smallest_user_key, f) || BeforeFile(ucmp, largest_user_key, f)) {
         // No overlap
       } else {
         return true;  // Overlap
@@ -151,32 +164,31 @@ bool SomeFileOverlapsRange(const InternalKeyComparator& icmp, bool disjoint_sort
     }
     return false;
   }
-  // 如果是相交有序文件，则进行二分查找
+  // 如果是不相交有序文件，则进行二分查找
   // Binary search over file list
   uint32_t index = 0;
   if (smallest_user_key != nullptr) {
     // Find the earliest possible internal key for smallest_user_key
     InternalKey small_key(*smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek);
-    // 在文件数组中找最小的largest_key的索引，该largest_key >=small_key
+    // 在文件数组中找最小的 largest_key 的索引，该 largest_key >=small_key
     index = FindFile(icmp, files, small_key.Encode());
   }
   // 如果files为空，返回 index为0
-  if (index >= files.size()) {  // FindFile 查找的索引超出文件数，返回False,说明无重叠
+  if (index >= files.size()) {
+    // FindFile 查找的索引超出文件数，返回 False,说明无重叠
     // beginning of range is after all files, so no overlap.
     // 范围的开始在所有文件之后
     return false;
   }
-  // 如果查找的key在 files[index] 之前，BeforeFile 返回True
+  // 如果查找的 key 在 files[index] 之前，BeforeFile 返回 True
   // <150,200>  <200,250>  <300,350>
   // 现在要查找 user_key_range <251,260>
-  // 先用 最小user_key 251 进行 FindFile(251) 返回 index=2
-  // 然后 最大user_key 260 与 <300,350>的最小值300 比较
-  // 即 BeforeFile(ucmp,260,files[2]) 来判断 260 是否在 files[2] 之前
-  // 返回 true
-  // 综上，files[2]的最大key 大于等于
-  // 最小的user_key，即其余文件的最大key都小于该 user_key 因此需要取 files[2]
-  // 的最小key 判断是否可能与 user_key_range 相交 user_key_range.largest_key <
-  // files[2].smallest 因此无相交，最终返回false
+  // 1. 先用 smallest_user_key 251 进行 FindFile(251) 返回 index=2
+  //       说明 smallest_user_key 比 index<2 之前的文件最大值都大，即 index<2 的文件不可能存与指定范围重叠
+  // 2. 然后 largest_user_key 260 与 <300,350>的最小值300 比较
+  //      即 BeforeFile(ucmp,260,files[2]) 来判断 260 是否在 files[2] 之前
+  //      即 largest_user_key 要大于 files[2] 的最小值才有可能有重叠
+  //      即 BeforeFile 返回 False 时有重叠
   return !BeforeFile(ucmp, largest_user_key, files[index]);
 }
 
@@ -506,8 +518,11 @@ void Version::Unref() {
     delete this;
   }
 }
-// level>0 说明是已排序文件，即 disjoint_sorted_files = true, level=0
-// 是未排序文件
+
+/*
+ * Level 0：文件可能有重叠，且不是按 key 范围排序的
+ * Level 1 及以上：文件是不相交的，且按 key 范围排序的
+ */
 bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
                              const Slice* largest_user_key) {
   return SomeFileOverlapsRange(vset_->icmp_, (level > 0), files_[level], smallest_user_key,
@@ -1406,6 +1421,8 @@ void VersionSet::GetRange2(const std::vector<FileMetaData*>& inputs1,
 }
 
 Iterator* VersionSet::MakeInputIterator(Compaction* c) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+
   ReadOptions options;
   options.verify_checksums = options_->paranoid_checks;
   options.fill_cache = false;
@@ -1681,6 +1698,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 }
 
 Compaction* VersionSet::CompactRange(int level, const InternalKey* begin, const InternalKey* end) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
   std::vector<FileMetaData*> inputs;
   current_->GetOverlappingInputs(level, begin, end,
                                  &inputs);  // 将level层与begin,end重合的文件放在 inputs 中

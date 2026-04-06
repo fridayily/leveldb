@@ -88,7 +88,8 @@ TEST_F(EnvTest, RunImmediately) {
 
   MutexLock l(&state.mu);
   while (!state.called) {
-    state.cvar.Wait(); // wait 当前线程阻塞直至条件变量被通知
+    // wait 当前线程阻塞直至条件变量被通知
+    state.cvar.Wait();
   }
 }
 

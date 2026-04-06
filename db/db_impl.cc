@@ -626,7 +626,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
 }
 // compact 操作
 void DBImpl::CompactMemTable() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"CompactMemTable begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
 
   mutex_.AssertHeld();
   assert(imm_ != nullptr);
@@ -722,6 +722,7 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   }
 }
 
+
 void DBImpl::TEST_CompactRange(int level, const Slice* begin, const Slice* end) {
   assert(level >= 0);
   assert(level + 1 < config::kNumLevels);
@@ -773,7 +774,8 @@ Status DBImpl::TEST_CompactMemTable() {
     // Wait until the compaction completes
     // 访问共享区加锁
     MutexLock l(&mutex_);
-    // imm_不为空，就一直阻塞在这里，直到收到通知，跳出while循环
+    // 如果 imm_ 不为空，就一直阻塞在这里，直到收到通知，跳出 while 循环
+    // CompactMemTable() 后台执行完成后， imm_ 被设置为 nullptr
     while (imm_ != nullptr && bg_error_.ok()) {
       background_work_finished_signal_.Wait();
     }
@@ -793,6 +795,7 @@ void DBImpl::RecordBackgroundError(const Status& s) {
 }
 
 void DBImpl::MaybeScheduleCompaction() {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
   mutex_.AssertHeld();
   if (background_compaction_scheduled_) {
     // Already scheduled 已经有一个后台压缩任务，直接返回
@@ -812,7 +815,7 @@ void DBImpl::MaybeScheduleCompaction() {
 void DBImpl::BGWork(void* db) { reinterpret_cast<DBImpl*>(db)->BackgroundCall(); }
 
 void DBImpl::BackgroundCall() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"BackgroundCall begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
   MutexLock l(&mutex_);
   assert(background_compaction_scheduled_);
   if (shutting_down_.load(std::memory_order_acquire)) {
@@ -832,14 +835,14 @@ void DBImpl::BackgroundCall() {
 }
 // 后台压缩任务
 void DBImpl::BackgroundCompaction() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"BackgroundCompaction begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
 
   mutex_.AssertHeld();
 
   if (imm_ != nullptr) {
     // Compact memtable 后直接返回
     CompactMemTable();
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"BackgroundCompaction end: CompactMemTable");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"CompactMemTable end: return form BackgroundCompaction");
     return;
   }
   // imm_ 为空,这里执行手动 compaction
@@ -848,7 +851,9 @@ void DBImpl::BackgroundCompaction() {
   InternalKey manual_end;
   if (is_manual) {  // 手动合并
     ManualCompaction* m = manual_compaction_;
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"manual compaction begin");
     c = versions_->CompactRange(m->level, m->begin, m->end);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"manual compaction end");
     m->done = (c == nullptr);
     if (c != nullptr) {
       manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
@@ -915,7 +920,7 @@ void DBImpl::BackgroundCompaction() {
 }
 
 void DBImpl::CleanupCompaction(CompactionState* compact) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"CleanupCompaction begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
 
   mutex_.AssertHeld();
   if (compact->builder != nullptr) {
@@ -934,7 +939,7 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
 }
 
 Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"OpenCompactionOutputFile begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
 
   assert(compact != nullptr);
   assert(compact->builder == nullptr);
@@ -961,7 +966,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 }
 
 Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* input) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"FinishCompactionOutputFile begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
 
   assert(compact != nullptr);
   assert(compact->outfile != nullptr);
@@ -1009,7 +1014,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
 }
 
 Status DBImpl::InstallCompactionResults(CompactionState* compact) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"InstallCompactionResults begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
 
   mutex_.AssertHeld();
   Log(options_.info_log, "Compacted %d@%d + %d@%d files => %lld bytes",
@@ -1029,7 +1034,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
 }
 
 Status DBImpl::DoCompactionWork(CompactionState* compact) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"DoCompactionWork begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
 
   const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
@@ -1212,12 +1217,14 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
 Iterator* DBImpl::NewInternalIterator(const ReadOptions& options, SequenceNumber* latest_snapshot,
                                       uint32_t* seed) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
   mutex_.Lock();
   *latest_snapshot = versions_->LastSequence();
 
   // Collect together all needed child iterators
   std::vector<Iterator*> list;
-  list.push_back(mem_->NewIterator());  // mem_NewIterator 返回一个MemTableIterator 指针
+  // mem_NewIterator 返回一个MemTableIterator 指针
+  list.push_back(mem_->NewIterator());
   mem_->Ref();
   if (imm_ != nullptr) {
     list.push_back(imm_->NewIterator());
@@ -1557,16 +1564,37 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // individual write by 1ms to reduce latency variance.  Also,
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
+      /*
+       * 我们即将达到 Level 0 文件数量的硬限制。与其在达到硬限制时让单个写入操作延迟数秒，
+       * 不如开始对每个单独的写入操作延迟 1ms，以减少延迟方差。
+       * 此外，这种延迟还可以将一些 CPU 资源让给压缩线程，以防它与写入线程共享同一个核心。
+       *
+       * 延迟策略的设计意图
+       * 分散延迟：
+       *   避免在达到硬限制时一次性延迟所有写入
+       *   通过小的、均匀的延迟减少用户感知的延迟波动
+       * 资源分配：
+       *   主动让出 CPU 时间片给压缩线程
+       *   助压缩线程更快地处理 Level 0 文件，缓解文件数量压力
+       * 性能平衡：
+       *   在写入性能和查询性能之间取得平衡
+       *   确保系统在高负载下仍能稳定运行
+       *
+       * kL0_SlowdownWritesTrigger：开始减速的阈值（默认 8 个文件）
+       * kL0_StopWritesTrigger：停止写入的硬限制（默认 12 个文件）
+       */
       mutex_.Unlock();
       env_->SleepForMicroseconds(1000);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
     } else if (!force && (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
-      // There is room in current memtable 依然有可用内存空间
+      // There is room in current memtable
+      // 依然有可用内存空间, 直接写
       break;
     } else if (imm_ != nullptr) {
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
+      // CompactMemTable() 在后台执行，执行完成后， imm_ 被设置为 nullptr
       Log(options_.info_log, "Current memtable full; waiting...\n");
       background_work_finished_signal_.Wait();
     } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
@@ -1575,11 +1603,15 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       background_work_finished_signal_.Wait();
     } else {
       // memtable 已经写满 或者 force 参数为 true 时触发 compaction
+      // note: 当创建新的 MemTable 时，会同时创建对应的 log 文件，二者是一一对应关系
+      // 后台线程将 Immutable MemTable 压缩到磁盘（生成 SST 文件）
+      // 当 Immutable MemTable 被成功压缩到磁盘后，对应的旧 log 文件可以被删除，因为数据已经持久化到 SST 文件中
       // Attempt to switch to a new memtable and trigger compaction of old
       assert(versions_->PrevLogNumber() == 0); // ？ 这里为什么
       uint64_t new_log_number = versions_->NewFileNumber();  // 新的记录 log 的文件名
       WritableFile* lfile = nullptr;
       // 创建新的日志文件
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create writeable log file {:06}.log", new_log_number);
       s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
@@ -1593,6 +1625,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       logfile_ = lfile;
       logfile_number_ = new_log_number;
       // 初始化 log::writer ，首先计算 RecordType CRC
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create log::Writer for {:06}.log", new_log_number);
       log_ = new log::Writer(lfile);
       // 将 memtable 地址指向 immutable
       imm_ = mem_;
@@ -1745,9 +1778,9 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     s = impl->versions_->LogAndApply(&edit, &impl->mutex_);
   }
   if (s.ok()) {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "RemoveObsoleteFiles");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "RemoveObsoleteFiles when open db");
     impl->RemoveObsoleteFiles();
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "MaybeScheduleCompaction");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "MaybeScheduleCompaction when open db");
     impl->MaybeScheduleCompaction();
   }
   impl->mutex_.Unlock();

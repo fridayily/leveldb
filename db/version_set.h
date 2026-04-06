@@ -47,7 +47,7 @@ class WritableFile;
 int FindFile(const InternalKeyComparator& icmp,
              const std::vector<FileMetaData*>& files, const Slice& key);
 
- // 如果files里面的key与[*smallest,*largest].有重叠，则返回 ture
+ // 如果 files 里面的 key 与 [*smallest,*largest] 有重叠，则返回 ture
 // Returns true iff some file in "files" overlaps the user key range
 // [*smallest,*largest].
 // smallest==nullptr represents a key smaller than all keys in the DB.

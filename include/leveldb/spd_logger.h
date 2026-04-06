@@ -19,7 +19,7 @@ class SpdLogger {
   static std::shared_ptr<spdlog::logger>& Log() {
     static std::shared_ptr<spdlog::logger> console_logger = []() {
       auto logger = spdlog::stdout_color_mt("console");
-      logger->set_pattern("%m-%d %H:%M:%S.%e %s:%# %! [%t] %v");
+      logger->set_pattern("%m-%d %H:%M:%S.%e [%t] %s:%# %! %v");
       logger->set_level(spdlog::level::info);
       return logger;
     }();  // 注意这里的 ()，表示立即执行 lambda

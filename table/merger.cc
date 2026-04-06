@@ -19,6 +19,7 @@ class MergingIterator : public Iterator {
         n_(n),
         current_(nullptr),
         direction_(kForward) {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
     }
@@ -178,6 +179,7 @@ void MergingIterator::FindLargest() {
 
 Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children,
                              int n) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
   assert(n >= 0);
   if (n == 0) {
     return NewEmptyIterator();

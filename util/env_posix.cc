@@ -757,7 +757,7 @@ class PosixEnv : public Env {
       return Status::IOError("lock " + filename, "already held by process");
     }
 
-    // 文件没有被占用, 加锁, true 加锁 false 解锁
+    // 文件没有被占用, 加锁,  true 加锁 false 解锁
     if (LockOrUnlock(fd, true) == -1) {
       int lock_errno = errno;
       ::close(fd);
@@ -860,7 +860,10 @@ class PosixEnv : public Env {
    *      无法被覆盖：静态函数不能被继承和重写，缺乏多态性。
 
    */
-  static void BackgroundThreadEntryPoint(PosixEnv* env) { env->BackgroundThreadMain(); }
+  static void BackgroundThreadEntryPoint(PosixEnv* env) {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "call BackgroundThreadMain");
+    env->BackgroundThreadMain();
+  }
 
   // Stores the work item data in a Schedule() call.
   //
@@ -901,6 +904,13 @@ int MaxOpenFiles() {
   g_open_read_only_file_limit = 50;
 #else
   struct ::rlimit rlim;
+  // getrlimit 调用失败（返回非零值）
+  // int getrlimit(int resource, struct rlimit *rlim);
+  //    resource：指定要获取的资源类型，这里使用 RLIMIT_NOFILE 表示文件描述符数量限制
+  //    rlim：指向 struct rlimit 结构的指针，用于存储获取到的限制值
+  //         struct rlimit 结构包含两个成员：
+  //            rlim_cur：当前软限制（当前进程可以使用的最大值）
+  //            rlim_max：硬限制（软限制可以达到的最大值）
   if (::getrlimit(RLIMIT_NOFILE, &rlim)) {
     // getrlimit failed, fallback to hard-coded default.
     g_open_read_only_file_limit = 50;
@@ -919,20 +929,22 @@ int MaxOpenFiles() {
 PosixEnv::PosixEnv()
     : background_work_cv_(&background_work_mutex_),  // 初始化条件变量
       started_background_thread_(false),             // 默认不能创建消费者线程
-      mmap_limiter_(MaxMmaps()),         // 限制最大的mmap数量
-      fd_limiter_(MaxOpenFiles()) {}     // 限制能打开的最大文件描述符
+      mmap_limiter_(MaxMmaps()),                     // 限制最大的mmap数量
+      fd_limiter_(MaxOpenFiles()) {}                 // 限制能打开的最大文件描述符
 
 // note: 主线程调用, 主要两个功能
 //    没有后台线程时创建后台线程，并添加任务到工作队列
 //    有后台线程时，只添加任务到工作队列
 void PosixEnv::Schedule(void (*background_work_function)(void* background_work_arg),
                         void* background_work_arg) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
   background_work_mutex_.Lock();
   // 如果没有开启后台线程，则创建后台线程，保证只有一个消费者线程在工作
   // Start the background thread, if we haven't done so already.
   if (!started_background_thread_) {
     started_background_thread_ = true;
     std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
+
     background_thread.detach();
   }
 
@@ -953,13 +965,14 @@ void PosixEnv::Schedule(void (*background_work_function)(void* background_work_a
   }
   // 插入待处理任务，生产者
   background_work_queue_.emplace(background_work_function, background_work_arg);
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "background_work_queue_ size:{}",
+                     background_work_queue_.size());
   // 释放锁，消费者开始消费，如果消费者执行任务时间较长，该线程可以重新获得锁，继续添加任务
   background_work_mutex_.Unlock();
 }
 // note: 后台主线程（消费者），该线程是一个常驻线程，可以不停的向 background_work_queue_
 //   取出任务，执行完成之后就 wait
 void PosixEnv::BackgroundThreadMain() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Create background thread");
   while (true) {
     // 这里会等待上面 Schedule 函数 background_work_mutex_.Unlock() 释放锁，才执行下面代码
     background_work_mutex_.Lock();
@@ -970,7 +983,8 @@ void PosixEnv::BackgroundThreadMain() {
       /*
        * note: wait 原理
        *  1. wait 方法首先会原子性地释放互斥锁，允许其他线程获取锁并修改共享资源
-       *  2. 线程将自己加入*条件变量的等待队列*，进入阻塞状态（休眠），此时线程不再占用 CPU 资源，直到被其他线程唤醒。
+       *  2. 线程将自己加入*条件变量的等待队列*，进入阻塞状态（休眠），此时线程不再占用 CPU
+       *   资源，直到被其他线程唤醒。
        *  3. 当其他线程调用 signal() 或 broadcast() 时，等待队列中的一个或多个线程会被唤醒
        *    被唤醒的线程会尝试重新获取互斥锁（这是阻塞操作，需要等待其他线程释放锁）
        *    只有成功获取锁后，wait 方法才会返回。
@@ -995,10 +1009,9 @@ void PosixEnv::BackgroundThreadMain() {
     background_work_queue_.pop();
     // 解锁后才开始执行任务，生产者队列继续添加任务
     background_work_mutex_.Unlock();
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "launch background work function begin: BGWork()");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "launch background work function begin: DBImpl::BGWork()");
     background_work_function(background_work_arg);
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "launch background work function end");
-
   }
 }
 
@@ -1020,12 +1033,11 @@ template <typename EnvType>
 class SingletonEnv {
  public:
   SingletonEnv() {
-    // NDEBUG 用于控制调试信息的编译
+    // 使用 #if !defined(NDEBUG) 确保只在调试模式下包含此代码
 #if !defined(NDEBUG)
     env_initialized_.store(true, std::memory_order_relaxed);
-#endif                                                      // !defined(NDEBUG)
-    static_assert(sizeof(env_storage_) >= sizeof(EnvType),  // 静态断言，在编译时检查断言
-                  "env_storage_ will not fit the Env");
+#endif
+    static_assert(sizeof(env_storage_) >= sizeof(EnvType), "env_storage_ will not fit the Env");
     static_assert(alignof(decltype(env_storage_)) >= alignof(EnvType),
                   "env_storage_ does not meet the Env's alignment needs");
     new (&env_storage_) EnvType();
@@ -1045,10 +1057,10 @@ class SingletonEnv {
   }
 
  private:
-  typename std::aligned_storage<sizeof(EnvType),
-                                alignof(EnvType)>::type  // alignof 返回对齐要求
-      env_storage_;
+  // alignof 返回对齐要求
+  typename std::aligned_storage<sizeof(EnvType), alignof(EnvType)>::type env_storage_;
 #if !defined(NDEBUG)
+  // 定义一个静态的原子布尔变量，用于线程安全地跟踪环境初始化状态
   static std::atomic<bool> env_initialized_;
 #endif  // !defined(NDEBUG)
 };

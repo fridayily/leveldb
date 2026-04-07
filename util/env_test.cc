@@ -37,14 +37,19 @@ TEST_F(EnvTest, ReadWrite) {
   while (data.size() < kDataSize) {
     int len = rnd.Skewed(18);  // Up to 2^18 - 1, but typically much smaller
     std::string r;
-    test::RandomString(&rnd, len, &r); // 获取指定长度的字符串,内容随机生成
-    ASSERT_LEVELDB_OK(writable_file->Append(r)); // 将数据添加到缓冲或者写入文件中
-    data += r; // 这个data用于比较
+    // 获取指定长度的字符串,内容随机生成
+    test::RandomString(&rnd, len, &r);
+    // 将数据添加到缓冲或者写入文件中
+    ASSERT_LEVELDB_OK(writable_file->Append(r));
+    // 这个data用于比较
+    data += r;
     if (rnd.OneIn(10)) {
-      ASSERT_LEVELDB_OK(writable_file->Flush()); // 数据写入文件
+      // 数据写入文件
+      ASSERT_LEVELDB_OK(writable_file->Flush());
     }
   }
-  ASSERT_LEVELDB_OK(writable_file->Sync()); // 将缓冲区的数据写入磁盘
+  // 将缓冲区的数据写入磁盘
+  ASSERT_LEVELDB_OK(writable_file->Sync());
   ASSERT_LEVELDB_OK(writable_file->Close());
   delete writable_file;
 
@@ -54,12 +59,15 @@ TEST_F(EnvTest, ReadWrite) {
   std::string read_result;
   std::string scratch;
   while (read_result.size() < data.size()) {
-    int len = std::min<int>(rnd.Skewed(18), data.size() - read_result.size()); // 减去已读取的长度
+    // 减去已读取的长度
+    int len = std::min<int>(rnd.Skewed(18), data.size() - read_result.size());
     scratch.resize(std::max(len, 1));  // at least 1 so &scratch[0] is legal
     Slice read; // 新变量
     ASSERT_LEVELDB_OK(sequential_file->Read(len, &read, &scratch[0]));
-    if (len > 0) { // len 是要读取的长度
-      ASSERT_GT(read.size(), 0); // read.size() 实际读取的长度
+    // len 是要读取的长度
+    if (len > 0) {
+      // read.size() 实际读取的长度
+      ASSERT_GT(read.size(), 0);
     }
     ASSERT_LE(read.size(), len);
     read_result.append(read.data(), read.size());

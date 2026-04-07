@@ -10,3 +10,4 @@ cmake-build-debug
 .idea
 third_party/glog
 third_party/googletest/cmake-build-debug
+leveldbutil

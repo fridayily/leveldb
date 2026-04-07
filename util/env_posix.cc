@@ -943,6 +943,7 @@ void PosixEnv::Schedule(void (*background_work_function)(void* background_work_a
   // Start the background thread, if we haven't done so already.
   if (!started_background_thread_) {
     started_background_thread_ = true;
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create new background thread @@@");
     std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
 
     background_thread.detach();

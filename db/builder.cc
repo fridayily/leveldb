@@ -15,6 +15,18 @@
 
 namespace leveldb {
 
+/*
+ * 将 memtable 中的数据写入 ldb 文件
+ *
+ * 1.TEST_CompactMemTable
+ * 2.Write(WriteOptions(), nullptr)
+ *      MakeRoomForWrite mem_ 转为 imm_
+ *          MaybeScheduleCompaction->Schedule 添加压缩任务到任务队列
+ *
+ * 创建后台线程 BackgroundThreadMain，不停从任务队列取出任务，执行 DBImpl::BGWork
+ *    BGWork->BackgroundCall->
+ *        BackgroundCompaction->CompactMemTable->WriteLevel0Table->BuildTable
+ */
 Status BuildTable(const std::string& dbname, Env* env, const Options& options,
                   TableCache* table_cache, Iterator* iter, FileMetaData* meta) {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "BuildTable begin");
@@ -22,10 +34,11 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
   meta->file_size = 0;
   iter->SeekToFirst();  // skip_list 的迭代器
 
-  std::string fname = TableFileName(dbname, meta->number);  // 确定数据库文件名
+  // note: 将要写入 ldb 文件名
+  std::string fname = TableFileName(dbname, meta->number);
   if (iter->Valid()) {
     WritableFile* file;
-    s = env->NewWritableFile(fname, &file);  // 创建存储数据库表
+    s = env->NewWritableFile(fname, &file);
     if (!s.ok()) {
       return s;
     }

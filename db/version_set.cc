@@ -132,6 +132,9 @@ static bool BeforeFile(const Comparator* ucmp, const Slice* user_key, const File
 }
 
 /*
+*
+* 检查指定键的范围是否与文件列表有重叠
+*
 * disjoint_sorted_files 为 false, 文件有重叠
 * 假设 level0 有 2 文件  [5,6,7,9] [9,10,11,12]
 *     smallest_user_key = 10, largest_user_key = 14

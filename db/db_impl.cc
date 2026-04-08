@@ -574,19 +574,18 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
   FileMetaData meta;
   // ldb 文件的编号
   meta.number = versions_->NewFileNumber();
-  // 将生产的文件ID放到set中
+  // 将生产的文件ID放到set中，表明这个文件正在被压缩
   pending_outputs_.insert(meta.number);
   Iterator* iter = mem->NewIterator();
   Log(options_.info_log, "Level-0 table #%llu: started", (unsigned long long)meta.number);
-  // 上面语句写入 LOG 文件
   Status s;
   {
     mutex_.Unlock();
     // 创建 Build Table 写 ldb 文件,
     // table_cache_在打开(创建)数据库时创建，iter_是要写入mem_table(skip_list)的迭代器
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"write mem table to BuildTable begin");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write mem table to BuildTable begin");
     s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"write mem table to BuildTable end");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write mem table to BuildTable end");
 
     mutex_.Lock();
   }
@@ -610,7 +609,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
       // skip_list 的最小，最大key 这里根据 mem 的key 的范围确定该文件的
       //  level 取值范围 0,1,2
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(),"PickLevelForMemTableOutput level: {}",level);
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "PickLevelForMemTableOutput level: {}", level);
     }
     // 将文件元信息（文件号，文件大小，最大、最小key） 添加到对应 new_files_ 中
     // new_files_ 中保存了每一 level 的文件元信息
@@ -626,7 +625,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
 }
 // compact 操作
 void DBImpl::CompactMemTable() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
   mutex_.AssertHeld();
   assert(imm_ != nullptr);
@@ -638,9 +637,9 @@ void DBImpl::CompactMemTable() {
   Version* base = versions_->current();
   base->Ref();
   // edit 会从base中获取文件元信息
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"WriteLevel0Table begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "WriteLevel0Table begin");
   Status s = WriteLevel0Table(imm_, &edit, base);
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"WriteLevel0Table end");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "WriteLevel0Table end");
 
   base->Unref();
 
@@ -667,7 +666,6 @@ void DBImpl::CompactMemTable() {
     RecordBackgroundError(s);
   }
 }
-
 
 /*
 
@@ -722,7 +720,6 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   }
 }
 
-
 void DBImpl::TEST_CompactRange(int level, const Slice* begin, const Slice* end) {
   assert(level >= 0);
   assert(level + 1 < config::kNumLevels);
@@ -776,6 +773,8 @@ Status DBImpl::TEST_CompactMemTable() {
     MutexLock l(&mutex_);
     // 如果 imm_ 不为空，就一直阻塞在这里，直到收到通知，跳出 while 循环
     // CompactMemTable() 后台执行完成后， imm_ 被设置为 nullptr
+    // NOTE: 如果 RecordBackgroundError 函数发送信号，此时 imm_ != nullptr 但 bg_error_ 非 ok 状态
+    //       这里会结束等待
     while (imm_ != nullptr && bg_error_.ok()) {
       background_work_finished_signal_.Wait();
     }
@@ -786,6 +785,12 @@ Status DBImpl::TEST_CompactMemTable() {
   return s;
 }
 
+/*
+ * 如果 bg_error_ 不是 ok 状态，生产者线程不会等待后台工作线程
+ *      如果 imm_ 还没压缩完成主线程返回错误状态的 s
+ * 如果 bg_error_ 是 ok 状态，正在等待后台工作线程的生产者线程收到信号后不再等待，
+ *      如果 imm_ 还没压缩完成主线程返回错误状态的 s
+ */
 void DBImpl::RecordBackgroundError(const Status& s) {
   mutex_.AssertHeld();
   if (bg_error_.ok()) {
@@ -795,7 +800,7 @@ void DBImpl::RecordBackgroundError(const Status& s) {
 }
 
 void DBImpl::MaybeScheduleCompaction() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
   mutex_.AssertHeld();
   if (background_compaction_scheduled_) {
     // Already scheduled 已经有一个后台压缩任务，直接返回
@@ -815,7 +820,7 @@ void DBImpl::MaybeScheduleCompaction() {
 void DBImpl::BGWork(void* db) { reinterpret_cast<DBImpl*>(db)->BackgroundCall(); }
 
 void DBImpl::BackgroundCall() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
   MutexLock l(&mutex_);
   assert(background_compaction_scheduled_);
   if (shutting_down_.load(std::memory_order_acquire)) {
@@ -833,16 +838,16 @@ void DBImpl::BackgroundCall() {
   MaybeScheduleCompaction();
   background_work_finished_signal_.SignalAll();
 }
-// 后台压缩任务
+// 完成一次压缩任务
 void DBImpl::BackgroundCompaction() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
   mutex_.AssertHeld();
 
   if (imm_ != nullptr) {
     // Compact memtable 后直接返回
     CompactMemTable();
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"CompactMemTable end: return form BackgroundCompaction");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "CompactMemTable end: return form BackgroundCompaction");
     return;
   }
   // imm_ 为空,这里执行手动 compaction
@@ -851,9 +856,9 @@ void DBImpl::BackgroundCompaction() {
   InternalKey manual_end;
   if (is_manual) {  // 手动合并
     ManualCompaction* m = manual_compaction_;
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"manual compaction begin");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "manual compaction begin");
     c = versions_->CompactRange(m->level, m->begin, m->end);
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"manual compaction end");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "manual compaction end");
     m->done = (c == nullptr);
     if (c != nullptr) {
       manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
@@ -920,7 +925,7 @@ void DBImpl::BackgroundCompaction() {
 }
 
 void DBImpl::CleanupCompaction(CompactionState* compact) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
   mutex_.AssertHeld();
   if (compact->builder != nullptr) {
@@ -939,7 +944,7 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
 }
 
 Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
   assert(compact != nullptr);
   assert(compact->builder == nullptr);
@@ -966,7 +971,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 }
 
 Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* input) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
   assert(compact != nullptr);
   assert(compact->outfile != nullptr);
@@ -1014,7 +1019,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
 }
 
 Status DBImpl::InstallCompactionResults(CompactionState* compact) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
   mutex_.AssertHeld();
   Log(options_.info_log, "Compacted %d@%d + %d@%d files => %lld bytes",
@@ -1034,7 +1039,7 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
 }
 
 Status DBImpl::DoCompactionWork(CompactionState* compact) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
   const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
@@ -1217,7 +1222,7 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
 Iterator* DBImpl::NewInternalIterator(const ReadOptions& options, SequenceNumber* latest_snapshot,
                                       uint32_t* seed) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
   mutex_.Lock();
   *latest_snapshot = versions_->LastSequence();
 
@@ -1380,6 +1385,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   // May temporarily unlock and wait.
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "MakeRoomForWrite Batch size: {}",
                      updates == nullptr ? 0 : updates->ApproximateSize());
+  // updates == nullptr 时触发压缩
   Status status = MakeRoomForWrite(updates == nullptr);
   // 获得最近的 sequence,一般写一个key, 自增1
   uint64_t last_sequence = versions_->LastSequence();
@@ -1391,6 +1397,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     // 双端队列中一个元素是一个 writebatch,里面包含多个 kv,这里将多个 Writer对象
     // 组合成一个大的 WriteBatch 注意这里还是持有锁的
     // 获取要写的一组数据
+    // note: 这里 write_batch 的地址就是 tmp_batch_ 的地址
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
     // 修改 sequence
     WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
@@ -1424,7 +1431,11 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
       }
       mutex_.Lock();
       if (sync_error) {
-        // The state of the log file is indeterminate: the log record we
+        /* 如果 sync_error 为 true, 说明 status 是错误状态
+         * 这里调用这个函数将 bg_error_ 设置为错误状态，这样主线程就不会等待后台工作线程工作完成，
+         * 而是直接返回错误
+         */
+        // The state of the log file is indeterminate (不明确的，模糊的): the log record we
         // just added may or may not show up when the DB is re-opened.
         // So we force the DB into a mode where all future writes fail.
         RecordBackgroundError(status);
@@ -1605,9 +1616,9 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // memtable 已经写满 或者 force 参数为 true 时触发 compaction
       // note: 当创建新的 MemTable 时，会同时创建对应的 log 文件，二者是一一对应关系
       // 后台线程将 Immutable MemTable 压缩到磁盘（生成 SST 文件）
-      // 当 Immutable MemTable 被成功压缩到磁盘后，对应的旧 log 文件可以被删除，因为数据已经持久化到 SST 文件中
-      // Attempt to switch to a new memtable and trigger compaction of old
-      assert(versions_->PrevLogNumber() == 0); // ？ 这里为什么
+      // 当 Immutable MemTable 被成功压缩到磁盘后，对应的旧 log 文件可以被删除，因为数据已经持久化到
+      // SST 文件中 Attempt to switch to a new memtable and trigger compaction of old
+      assert(versions_->PrevLogNumber() == 0);               // ？ 这里为什么
       uint64_t new_log_number = versions_->NewFileNumber();  // 新的记录 log 的文件名
       WritableFile* lfile = nullptr;
       // 创建新的日志文件

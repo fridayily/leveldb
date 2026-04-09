@@ -16,7 +16,6 @@ Iterator::~Iterator() {
   if (!cleanup_head_.IsEmpty()) {
     cleanup_head_.Run();
     for (CleanupNode* node = cleanup_head_.next; node != nullptr;) {
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Cleanup node");
       node->Run();
       CleanupNode* next_node = node->next;
       delete node;

@@ -18,14 +18,15 @@ namespace leveldb {
 /*
  * 将 memtable 中的数据写入 ldb 文件
  *
- * 1.TEST_CompactMemTable
- * 2.Write(WriteOptions(), nullptr)
- *      MakeRoomForWrite mem_ 转为 imm_
- *          MaybeScheduleCompaction->Schedule 添加压缩任务到任务队列
- *
- * 创建后台线程 BackgroundThreadMain，不停从任务队列取出任务，执行 DBImpl::BGWork
- *    BGWork->BackgroundCall->
- *        BackgroundCompaction->CompactMemTable->WriteLevel0Table->BuildTable
+    调用栈
+ *  leveldb::BuildTable(const std::string &, leveldb::Env *, const leveldb::Options &, leveldb::TableCache *, leveldb::Iterator *, leveldb::FileMetaData *) builder.cc:32
+    leveldb::DBImpl::WriteLevel0Table(leveldb::MemTable *, leveldb::VersionEdit *, leveldb::Version *) db_impl.cc:587
+    leveldb::DBImpl::CompactMemTable() db_impl.cc:641
+    leveldb::DBImpl::BackgroundCompaction() db_impl.cc:849
+    leveldb::DBImpl::BackgroundCall() db_impl.cc:831
+    leveldb::DBImpl::BGWork(void *) db_impl.cc:820
+    leveldb::PosixEnv::BackgroundThreadMain() env_posix.cc:1014
+    leveldb::PosixEnv::BackgroundThreadEntryPoint(leveldb::PosixEnv *) env_posix.cc:865
  */
 Status BuildTable(const std::string& dbname, Env* env, const Options& options,
                   TableCache* table_cache, Iterator* iter, FileMetaData* meta) {
@@ -43,21 +44,27 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
       return s;
     }
 
+    // 从imm 中获取第一个key,即最小的 key
     TableBuilder* builder = new TableBuilder(options, file);
-    meta->smallest.DecodeFrom(iter->key());  // 从imm 中获取第一个key,即最小的key
+    meta->smallest.DecodeFrom(iter->key());
     Slice key;
     for (; iter->Valid(); iter->Next()) {
-      key = iter->key();  // 返回的是 internal key
+      // 返回 internal key= key_length(varint) + key + value_type + seq + val_length(varint) + val
+      // 即 key 和 value 是在一起的
+      key = iter->key();
       builder->Add(key, iter->value());
     }
-    if (!key.empty()) {  // 循环遍历完之后，迭代器的最后一个key最大
+    if (!key.empty()) {
+      // 循环遍历完之后，迭代器的最后一个key最大
       meta->largest.DecodeFrom(key);
     }
 
     // Finish and check for builder errors
+    // 将 table 写入文件
     s = builder->Finish();
     if (s.ok()) {
-      meta->file_size = builder->FileSize();  // 数据库文件总大小
+      // 数据库文件总大小
+      meta->file_size = builder->FileSize();
       assert(meta->file_size > 0);
     }
     delete builder;
@@ -73,12 +80,15 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     file = nullptr;
 
     if (s.ok()) {
-      // Verify that the table is usable 确认表是可用的  未明白
+      // Verify that the table is usable
       SPDLOG_LOGGER_INFO(SpdLogger::Log(),
                          "BuildTable Success and create Iterator to verify table is usable");
+      // note: 读取表的索引信息构建 table, 并存入 table_cache
       Iterator* it = table_cache->NewIterator(ReadOptions(), meta->number, meta->file_size);
       s = it->status();
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(),"delete table_cache TwoLevelIterator");
       delete it;
+
     }
   }
 

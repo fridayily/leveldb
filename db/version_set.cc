@@ -996,7 +996,7 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
     s = env_->NewWritableFile(new_manifest_file, &descriptor_file_);
     if (s.ok()) {
       descriptor_log_ = new log::Writer(descriptor_file_);
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Write snapshot info to Manifest file {}",
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "WriteSnapshot info to Manifest file {}",
                          new_manifest_file);
       s = WriteSnapshot(descriptor_log_);
     }
@@ -1274,7 +1274,7 @@ void VersionSet::Finalize(Version* v) {
 
 Status VersionSet::WriteSnapshot(log::Writer* log) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
-
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
   // Save metadata
   VersionEdit edit;
   edit.SetComparatorName(icmp_.user_comparator()->Name());
@@ -1642,7 +1642,18 @@ void AddBoundaryInputs(const InternalKeyComparator& icmp,
   }
 }
 
+/*
+ * 调用栈
+ * leveldb::VersionSet::SetupOtherInputs(leveldb::Compaction *) version_set.cc:1646
+ * leveldb::VersionSet::CompactRange(int, const leveldb::InternalKey *, const leveldb::InternalKey *) version_set.cc:1734
+ * leveldb::DBImpl::BackgroundCompaction() db_impl.cc:867
+ * leveldb::DBImpl::BackgroundCall() db_impl.cc:838
+ * leveldb::DBImpl::BGWork(void *) db_impl.cc:827
+ * leveldb::PosixEnv::BackgroundThreadMain() env_posix.cc:1014
+ * leveldb::PosixEnv::BackgroundThreadEntryPoint(leveldb::PosixEnv *) env_posix.cc:865
+ */
 void VersionSet::SetupOtherInputs(Compaction* c) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
   const int level = c->level();
   InternalKey smallest, largest;
 

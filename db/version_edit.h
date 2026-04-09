@@ -56,6 +56,8 @@ class VersionEdit {
     last_sequence_ = seq;
   }
   void SetCompactPointer(int level, const InternalKey& key) {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "add (level, key) to compact_pointer {}",
+                      compact_pointers_.size());
     compact_pointers_.push_back(std::make_pair(level, key));
   }
 
@@ -69,7 +71,7 @@ class VersionEdit {
     f.file_size = file_size;
     f.smallest = smallest;
     f.largest = largest;
-    new_files_.push_back(std::make_pair(level, f)); // 这里的f 是FileMeta
+    new_files_.push_back(std::make_pair(level, f));
   }
 
   // Delete the specified "file" from the specified "level".

@@ -98,6 +98,7 @@ Status Table::Open(const Options& options, RandomAccessFile* file,
     rep->filter_data = nullptr;
     rep->filter = nullptr;
     *table = new Table(rep);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "read meta to table");
     (*table)->ReadMeta(footer);  // 构造 filter_block
   }
 
@@ -132,7 +133,9 @@ void Table::ReadMeta(const Footer& footer) {
   if (iter->Valid() && iter->key() == Slice(key)) {
     ReadFilter(iter->value());
   }
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete meta block iter");
   delete iter;
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete meta block");
   delete meta;
 }
 

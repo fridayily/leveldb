@@ -88,6 +88,7 @@ class LEVELDB_EXPORT Iterator {
     bool IsEmpty() const { return function == nullptr; }
     // Invokes the cleanup function.
     void Run() {
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Cleanup node");
       assert(function != nullptr);
       (*function)(arg1, arg2);
     }

@@ -37,7 +37,10 @@ TableCache::TableCache(const std::string& dbname, const Options& options, int en
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create TableCache");
 }
 
-TableCache::~TableCache() { delete cache_; }
+TableCache::~TableCache() {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete TableCache TotalCharge: {}",cache_->TotalCharge());
+  delete cache_;
+}
 
 /*
  * 每次写入 ldb 文件都会重新打开，验证 ldb 文件是否合法
@@ -60,6 +63,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Ha
     s = env_->NewRandomAccessFile(fname, &file);
     if (!s.ok()) {
       // 如果打开失败，尝试打开 SST 文件
+      // 因为存储的文件可能是 sst 文件或者 ldb 文件
       std::string old_fname = SSTTableFileName(dbname_, file_number);
       if (env_->NewRandomAccessFile(old_fname, &file).ok()) {
         s = Status::OK();
@@ -88,6 +92,12 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Ha
   return s;
 }
 
+
+/*
+ * 1. 将 file_number 对应 table 存到 TableCache 中，返回一个 handle
+ * 2. 构造一个二级迭代器
+ * 3. 注册这个文件对应 handle 到 cleanup_head_，迭代器失效时自动析构
+ */
 Iterator* TableCache::NewIterator(const ReadOptions& options, uint64_t file_number,
                                   uint64_t file_size, Table** tableptr) {
   if (tableptr != nullptr) {
@@ -96,6 +106,8 @@ Iterator* TableCache::NewIterator(const ReadOptions& options, uint64_t file_numb
 
   Cache::Handle* handle = nullptr;
   // 从cache或文件中查找对应的表
+  // note: 如果 table_cache 中找不到对应的文件编号，
+  //   则读取对应的 ldb 文件的索引信息构造成 (file_number,TableAndFile) 存到 table_cache 中，这样就不用每次解析文件
   Status s = FindTable(file_number, file_size, &handle);
   if (!s.ok()) {
     return NewErrorIterator(s);
@@ -105,7 +117,8 @@ Iterator* TableCache::NewIterator(const ReadOptions& options, uint64_t file_numb
   // 一个二级迭代器，一个迭代index,一个data
   Iterator* result = table->NewIterator(options);
   /*
-   * 将 handle 加入一个 cleanup_head_ 中
+   * handle 是 cache_ 里面的一个 key
+   * 这里将 handle 注册到一个 cleanup_head_ 的链表中
    * 当迭代器析构时，会自动调用所设置的删除函数
    */
   result->RegisterCleanup(&UnrefEntry, cache_, handle);

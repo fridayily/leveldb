@@ -581,8 +581,12 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
   Status s;
   {
     mutex_.Unlock();
-    // 创建 Build Table 写 ldb 文件,
-    // table_cache_在打开(创建)数据库时创建，iter_是要写入mem_table(skip_list)的迭代器
+    // note:
+    //   1. memTable 中数据写入 ldb 文件,
+    //   2. table_cache_: 在打开(创建)数据库时创建，当 mem 中的数据写入 ldb 文件后，会打开 ldb 文件，读取索引信息
+    //        构造 (file_number,TableAndFile)，写入 table_cache_
+    //   3. iter_ 是要写入 mem_table(skip_list) 的迭代器
+    //   4. meta 保存文件元信息
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write mem table to BuildTable begin");
     s = BuildTable(dbname_, env_, options_, table_cache_, iter, &meta);
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write mem table to BuildTable end");
@@ -592,6 +596,8 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
 
   Log(options_.info_log, "Level-0 table #%llu: %lld bytes %s", (unsigned long long)meta.number,
       (unsigned long long)meta.file_size, s.ToString().c_str());
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "delete MemTable iter");
+  // memtable 的数据已到文件中，删除迭代器
   delete iter;
   // 清除数据
   pending_outputs_.erase(meta.number);
@@ -613,6 +619,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
     }
     // 将文件元信息（文件号，文件大小，最大、最小key） 添加到对应 new_files_ 中
     // new_files_ 中保存了每一 level 的文件元信息
+    // note: 层级信息会写到 MANIFEST 文件中
     edit->AddFile(level, meta.number, meta.file_size, meta.smallest, meta.largest);
   }
   // 将刚生产的ldb文件的元信息添加到 stats_ 中
@@ -752,6 +759,7 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin, const Slice* end) 
       manual_compaction_ = &manual;
       // ManualCompaction 对象中有要压缩的 level、begin key 、end key 和 完成状态
       // 发起一个调度任务，第二次循环到 else 中等待任务执行完成
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "MaybeScheduleCompaction manual");
       MaybeScheduleCompaction();
     } else {  // Running either my compaction or another compaction.
       // 等待发起的任务执行完毕

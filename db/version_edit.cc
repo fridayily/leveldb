@@ -40,6 +40,17 @@ void VersionEdit::Clear() {
   new_files_.clear();
 }
 
+/*
+ * 调用栈
+ * leveldb::VersionEdit::EncodeTo(std::string *) const version_edit.cc:45
+ * leveldb::VersionSet::LogAndApply(leveldb::VersionEdit *, leveldb::port::Mutex *) version_set.cc:1014
+ * leveldb::DBImpl::CompactMemTable() db_impl.cc:662
+ * leveldb::DBImpl::BackgroundCompaction() db_impl.cc:856
+ * leveldb::DBImpl::BackgroundCall() db_impl.cc:838
+ * leveldb::DBImpl::BGWork(void *) db_impl.cc:827
+ * leveldb::PosixEnv::BackgroundThreadMain() env_posix.cc:1014
+ * leveldb::PosixEnv::BackgroundThreadEntryPoint(leveldb::PosixEnv *) env_posix.cc:865
+ */
 void VersionEdit::EncodeTo(std::string* dst) const {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(),"encode edit to string, has_comparator_:{}",has_comparator_);
   if (has_comparator_) {
@@ -107,7 +118,8 @@ static bool GetLevel(Slice* input, int* level) {
 
 Status VersionEdit::DecodeFrom(const Slice& src) {
   Clear();
-  Slice input = src; // input 和 src 指向同一个地址
+  // input 和 src 指向同一个地址
+  Slice input = src;
   const char* msg = nullptr;
   uint32_t tag;
 

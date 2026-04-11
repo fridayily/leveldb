@@ -696,7 +696,7 @@ class PosixEnv : public Env {
   }
 
   Status RemoveFile(const std::string& filename) override {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "RemoveFile {}", filename);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "{}", filename);
 
     if (::unlink(filename.c_str()) != 0) {  // 删除已存在文件
       return PosixError(filename, errno);
@@ -705,7 +705,7 @@ class PosixEnv : public Env {
   }
 
   Status CreateDir(const std::string& dirname) override {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "CreateDir {}", dirname);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "{}", dirname);
 
     if (::mkdir(dirname.c_str(), 0755) != 0) {  // 目录 读写执行权限
       return PosixError(dirname, errno);
@@ -714,7 +714,7 @@ class PosixEnv : public Env {
   }
 
   Status RemoveDir(const std::string& dirname) override {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "RemoveDir {}", dirname);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "{}", dirname);
 
     if (::rmdir(dirname.c_str()) != 0) {
       return PosixError(dirname, errno);
@@ -741,7 +741,7 @@ class PosixEnv : public Env {
   }
 
   Status LockFile(const std::string& filename, FileLock** lock) override {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "LockFile {}", filename);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "{}", filename);
 
     *lock = nullptr;
     // 创建 LOCK 文件

@@ -66,8 +66,6 @@ class MemTable {
   friend class MemTableIterator;
   friend class MemTableBackwardIterator;
 
-  friend void PrintMemTableSkipList(const MemTable& memtable);
-
 
   struct KeyComparator {
     const InternalKeyComparator comparator;

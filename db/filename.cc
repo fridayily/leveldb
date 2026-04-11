@@ -25,6 +25,13 @@ static std::string MakeFileName(const std::string& dbname, uint64_t number,
   return dbname + buf;
 }
 
+/*
+ * 主要记录 Put, Delete 等操作
+ * 确保写入操作在系统崩溃时不会丢失
+ * log 文件是顺序写入的，避免了随机 I/O，提高写入性能
+ * 记录类型包括:
+ *   kFullType kFirstType kMiddleType kLastType
+ */
 std::string LogFileName(const std::string& dbname, uint64_t number) {
   assert(number > 0);
   return MakeFileName(dbname, number, "log");

@@ -86,6 +86,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Ha
       tf->table = table;
       // 插入的 key 为 ldb 文件的 id ,value 为 TableAndFile 实例, 该实例已经解析了ldb 文件的索引信息
       // TableCache::Get中会调用 cache 中的 tf
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(),"Insert {:06}.ldb to TableCache",file_number);
       *handle = cache_->Insert(key, tf, 1, &DeleteEntry);
     }
   }

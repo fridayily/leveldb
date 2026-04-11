@@ -635,6 +635,7 @@ TEST(CustomTest, BasicBatchWriteRead) {
   batch.Put("k05", "v05");
   status = db->Write(w_opt, &batch);
   ASSERT_TRUE(status.ok());
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"=============================================================== {}",1);
   db->CompactRange(nullptr, nullptr);
   batch.Clear();
   batch.Put("k11", "v11");
@@ -644,6 +645,8 @@ TEST(CustomTest, BasicBatchWriteRead) {
   batch.Put("k15", "v15");
   status = db->Write(w_opt, &batch);
   ASSERT_TRUE(status.ok());
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"=============================================================== {}",2);
+
   db->CompactRange(nullptr, nullptr);
   batch.Clear();
   batch.Put("k21", "v21");
@@ -653,6 +656,7 @@ TEST(CustomTest, BasicBatchWriteRead) {
   batch.Put("k25", "v25");
   status = db->Write(w_opt, &batch);
   ASSERT_TRUE(status.ok());
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"=============================================================== {}",3);
   db->CompactRange(nullptr, nullptr);
   batch.Clear();
   batch.Put("k31", "v31");
@@ -662,6 +666,8 @@ TEST(CustomTest, BasicBatchWriteRead) {
   batch.Put("k35", "v35");
   status = db->Write(w_opt, &batch);
   ASSERT_TRUE(status.ok());
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"=============================================================== {}",4);
+
   db->CompactRange(nullptr, nullptr);
   batch.Clear();
   batch.Put("k01", "v11");
@@ -670,6 +676,7 @@ TEST(CustomTest, BasicBatchWriteRead) {
   batch.Put("k31", "v13");
   status = db->Write(w_opt, &batch);
   ASSERT_TRUE(status.ok());
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"===============================================================, {}",5);
   db->CompactRange(nullptr, nullptr);
   batch.Clear();
 

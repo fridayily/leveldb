@@ -313,6 +313,7 @@ void DBImpl::RemoveObsoleteFiles() {
       if (!keep) {
         files_to_delete.push_back(std::move(filename));
         if (type == kTableFile) {
+          SPDLOG_LOGGER_INFO(SpdLogger::Log(),"evict {:06}.ldb from TableCache",number);
           table_cache_->Evict(number);
         }
         /*
@@ -469,7 +470,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, bool last_log, bool* save_man
   //
   std::string fname = LogFileName(dbname_, log_number);
   SequentialFile* file;
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create Sequential LogfileName {}", fname);
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create Sequential LogFile {} for read", fname);
   Status status = env_->NewSequentialFile(fname, &file);
   if (!status.ok()) {
     MaybeIgnoreError(&status);
@@ -583,7 +584,8 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
     mutex_.Unlock();
     // note:
     //   1. memTable 中数据写入 ldb 文件,
-    //   2. table_cache_: 在打开(创建)数据库时创建，当 mem 中的数据写入 ldb 文件后，会打开 ldb 文件，读取索引信息
+    //   2. table_cache_: 在打开(创建)数据库时创建，当 mem 中的数据写入 ldb 文件后，会打开 ldb
+    //   文件，读取索引信息
     //        构造 (file_number,TableAndFile)，写入 table_cache_
     //   3. iter_ 是要写入 mem_table(skip_list) 的迭代器
     //   4. meta 保存文件元信息
@@ -615,7 +617,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit, Version* base)
       // skip_list 的最小，最大key 这里根据 mem 的key 的范围确定该文件的
       //  level 取值范围 0,1,2
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "PickLevelForMemTableOutput level: {}", level);
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "PickLevelForMemTableOutput level: {} end", level);
     }
     // 将文件元信息（文件号，文件大小，最大、最小key） 添加到对应 new_files_ 中
     // new_files_ 中保存了每一 level 的文件元信息
@@ -643,7 +645,7 @@ void DBImpl::CompactMemTable() {
   // 获取当前的 version
   Version* base = versions_->current();
   base->Ref();
-  // edit 会从base中获取文件元信息
+  // edit 会从 base 中获取文件元信息
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "WriteLevel0Table begin");
   Status s = WriteLevel0Table(imm_, &edit, base);
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "WriteLevel0Table end");
@@ -659,6 +661,7 @@ void DBImpl::CompactMemTable() {
   if (s.ok()) {
     edit.SetPrevLogNumber(0);
     edit.SetLogNumber(logfile_number_);  // Earlier logs no longer needed
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "LogAndApply logfile_number_: {:06}.log ",logfile_number_);
     s = versions_->LogAndApply(&edit, &mutex_);
   }
 
@@ -723,6 +726,9 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   }
   TEST_CompactMemTable();  // TODO(sanjay): Skip if memtable does not overlap
   for (int level = 0; level < max_level_with_files; level++) {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "============================ TEST_CompactRange level: {}, begin: {}, end: {}", level,
+                       begin == nullptr ? "nullptr" : begin->ToString(),
+                       end == nullptr ? "nullptr" : end->ToString());
     TEST_CompactRange(level, begin, end);
   }
 }
@@ -753,16 +759,22 @@ void DBImpl::TEST_CompactRange(int level, const Slice* begin, const Slice* end) 
 
   MutexLock l(&mutex_);
   // 用于确保在读取 shutting_down_ 的值之前，所有写入 shutting_down_ 的值都已经被刷新到主内存中
+  int trace_index = 0;
+  // note: manual.done 为 false 就会一直循环下去
   while (!manual.done && !shutting_down_.load(std::memory_order_acquire) && bg_error_.ok()) {
+    trace_index += 1;
     if (manual_compaction_ == nullptr) {  // Idle
       // 手动 compact
       manual_compaction_ = &manual;
       // ManualCompaction 对象中有要压缩的 level、begin key 、end key 和 完成状态
-      // 发起一个调度任务，第二次循环到 else 中等待任务执行完成
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "MaybeScheduleCompaction manual");
+      // note: 发起一个调度任务，第二次循环到 else 中等待任务执行完成，如果压缩没完成，继续压缩
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "MaybeScheduleCompaction manual trace_index: {}",
+                         trace_index);
       MaybeScheduleCompaction();
     } else {  // Running either my compaction or another compaction.
       // 等待发起的任务执行完毕
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "background_work_finished_signal_ wait trace_index: {}",
+                         trace_index);
       background_work_finished_signal_.Wait();
     }
   }
@@ -808,7 +820,7 @@ void DBImpl::RecordBackgroundError(const Status& s) {
 }
 
 void DBImpl::MaybeScheduleCompaction() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin imm_ is {} empty ", imm_ == nullptr ? "" : "not");
   mutex_.AssertHeld();
   if (background_compaction_scheduled_) {
     // Already scheduled 已经有一个后台压缩任务，直接返回
@@ -843,12 +855,21 @@ void DBImpl::BackgroundCall() {
 
   // Previous compaction may have produced too many files in a level,
   // so reschedule another compaction if needed.
+  // note: 上面的 BackgroundCompaction 一般进行 memTable 的压缩，将数据写到 level 0
+  //    这里在重新发起压缩任务, 进行 ldb 文件的压缩
   MaybeScheduleCompaction();
   background_work_finished_signal_.SignalAll();
 }
 // 完成一次压缩任务
+/*
+leveldb::DBImpl::BackgroundCompaction() db_impl.cc:863
+leveldb::DBImpl::BackgroundCall() db_impl.cc:849
+leveldb::DBImpl::BGWork(void *) db_impl.cc:838
+leveldb::PosixEnv::BackgroundThreadMain() env_posix.cc:1014
+leveldb::PosixEnv::BackgroundThreadEntryPoint(leveldb::PosixEnv *) env_posix.cc:865
+ */
 void DBImpl::BackgroundCompaction() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin: imm_ is {} empty", imm_ == nullptr ? "" : "not");
 
   mutex_.AssertHeld();
 
@@ -858,16 +879,20 @@ void DBImpl::BackgroundCompaction() {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "CompactMemTable end: return form BackgroundCompaction");
     return;
   }
+
   // imm_ 为空,这里执行手动 compaction
   Compaction* c;
   bool is_manual = (manual_compaction_ != nullptr);
+
   InternalKey manual_end;
-  if (is_manual) {  // 手动合并
+  if (is_manual) {
+    // 手动合并, manual_compaction_ 在 TEST_CompactRange 中设置
     ManualCompaction* m = manual_compaction_;
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "manual compaction begin");
     c = versions_->CompactRange(m->level, m->begin, m->end);
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "manual compaction end");
     m->done = (c == nullptr);
+    // note: m->done 为 true 时表示压缩结束
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "manual compaction end: done: {}", m->done);
     if (c != nullptr) {
       manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
     }
@@ -878,12 +903,23 @@ void DBImpl::BackgroundCompaction() {
   } else {
     c = versions_->PickCompaction();
   }
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "is_manual: {}, compact level: {}", is_manual,
+                     c == nullptr ? -1 : c->level());
 
   Status status;
+  /*
+   * note:
+   *  1. c == nullptr 压缩已经完成，无须进一步操作
+   *  2. 非手动压缩且满足 IsTrivialMove 的条件，则将文件从 level(N) 移动到 level(N+1)
+   *  3. 进行进一步压缩
+   */
   if (c == nullptr) {
     // Nothing to do
   } else if (!is_manual && c->IsTrivialMove()) {
     // Move file to next level
+    // 满足该条件直接将 Level N 的单个文件移动到 Level N+1
+    // 不需要执行实际的文件合并操作，减少压缩过程的 I/O 开销和 CPU 消耗
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Trivial Move");
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
     c->edit()->RemoveFile(c->level(), f->number);
@@ -898,6 +934,7 @@ void DBImpl::BackgroundCompaction() {
         static_cast<unsigned long long>(f->file_size), status.ToString().c_str(),
         versions_->LevelSummary(&tmp));
   } else {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create CompactionState");
     CompactionState* compact = new CompactionState(c);
     status = DoCompactionWork(compact);
     if (!status.ok()) {
@@ -949,6 +986,7 @@ void DBImpl::CleanupCompaction(CompactionState* compact) {
     pending_outputs_.erase(out.number);
   }
   delete compact;
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "end");
 }
 
 Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
@@ -1046,6 +1084,14 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
 
+/*
+leveldb::DBImpl::DoCompactionWork(leveldb::DBImpl::CompactionState *) db_impl.cc:1067
+leveldb::DBImpl::BackgroundCompaction() db_impl.cc:919
+leveldb::DBImpl::BackgroundCall() db_impl.cc:849
+leveldb::DBImpl::BGWork(void *) db_impl.cc:838
+leveldb::PosixEnv::BackgroundThreadMain() env_posix.cc:1014
+leveldb::PosixEnv::BackgroundThreadEntryPoint(leveldb::PosixEnv *) env_posix.cc:865
+ */
 Status DBImpl::DoCompactionWork(CompactionState* compact) {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
@@ -1630,7 +1676,7 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       uint64_t new_log_number = versions_->NewFileNumber();  // 新的记录 log 的文件名
       WritableFile* lfile = nullptr;
       // 创建新的日志文件
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create writeable log file {:06}.log", new_log_number);
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create new LogFile {:06}.log to write", new_log_number);
       s = env_->NewWritableFile(LogFileName(dbname_, new_log_number), &lfile);
       if (!s.ok()) {
         // Avoid chewing through file number space in a tight loop.
@@ -1776,7 +1822,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     // Create new log and a corresponding memtable.
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     WritableFile* lfile;
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create LogFile {}", LogFileName(dbname, new_log_number));
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create new LogFile {} to write", LogFileName(dbname, new_log_number));
     s = options.env->NewWritableFile(LogFileName(dbname, new_log_number), &lfile);
     if (s.ok()) {
       edit.SetLogNumber(new_log_number);

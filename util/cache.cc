@@ -152,20 +152,19 @@ class HandleTable {
    * 返回要移除到结点
    * */
   LRUHandle* Remove(const Slice& key, uint32_t hash) {
-    LRUHandle** ptr =
-        FindPointer(key, hash);  // 返回的是前驱结点的 next_hash 的地址
-    LRUHandle* result = *ptr;    // next_hash 里面保存的地址
+    // 返回的是前驱结点的 next_hash 的地址
+    LRUHandle** ptr = FindPointer(key, hash);
+    // next_hash 里面保存的地址
+    LRUHandle* result = *ptr;
     if (result != nullptr) {
       // int   i=10;
       // int*  a=&i; -> result(*ptr)
       // int** b=&a; -> ptr
       // 原来 *ptr 保存的是所要查找 key 的结点,现在指向key的下一个结点
       *ptr = result->next_hash;  // 将 next_hash 保存的地址更新为下一个结点地址
-      /*即删除result结点，将 result 空出来*/
+      /* 即删除result结点，将 result 空出来 */
       --elems_;
     }
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Remove {}", result->value);
-
     return result;  // 返回删除的结点
   }
 

@@ -199,6 +199,10 @@ class VersionSet {
   // Return the current manifest file number
   uint64_t ManifestFileNumber() const { return manifest_file_number_; }
 
+  void SetManifestFileNumberDebug(uint64_t num) {
+    manifest_file_number_= num;
+  }
+
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_++; }
 

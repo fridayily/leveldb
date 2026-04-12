@@ -604,23 +604,32 @@ void Version::GetOverlappingInputs(int level, const InternalKey* begin, const In
         // Level-0 files may overlap each other.  So check if the newly
         // added file has expanded the range.  If so, restart search.
         //   user_begin > f.smallest 之前，重新设置要比较的开始位置
-        //  f1:<10,20> f2:<15,30> 要比较 <5,15>
-        //         第一轮: <5，15>和 f1比较  10 < 5 为 false , 20> 15 为true ->
-        //         设置 user_end = 20,重新遍历 第二轮: <5,20> 和 f1比较  10< 5
-        //         为 false, 20>20 为 false  inputs 里面有f1 第三轮: <5,20> 和
-        //         f2比较 15< 5 为 false,30>20 为 true-> 设置 user_end=30
-        //         ,重新遍历 第四轮：<5,30> 和 f2比较 15< 5 为 false,30>30 为
-        //         false inputs 里面有f1,f2
-        //
+        //  假设 f1:<110,120> f2:<115,130> 要比较 <105,115>
+        //  第一轮: file_1 file_start: 110 file_limit: 120 user_begin: 105 user_end: 115
+        //  inputs_size: 1 第二轮: file_1 file_start: 110 file_limit: 120 user_begin: 105 user_end:
+        //  120 inputs_size: 1 第三轮: file_2 file_start: 115 file_limit: 130 user_begin: 105
+        //  user_end: 120 inputs_size: 2 第四轮: file_1 file_start: 110 file_limit: 120 user_begin:
+        //  105 user_end: 130 inputs_size: 1 第五轮: file_2 file_start: 115 file_limit: 130
+        //  user_begin: 105 user_end: 130 inputs_size: 2
+
+        SPDLOG_LOGGER_INFO(
+            SpdLogger::Log(),
+            "file_{} file_start: {} file_limit: {} user_begin: {} user_end: {} inputs_size: {}", i,
+            file_start.ToString(), file_limit.ToString(), user_begin.ToString(),
+            user_end.ToString(), inputs->size());
+
         if (begin != nullptr && user_cmp->Compare(file_start, user_begin) < 0) {
-          user_begin = file_start;  // 重新设置开始位置
+          // f.file_start < user_begin 则重新设置开始位置
+          user_begin = file_start;
           inputs->clear();
-          i = 0;  // 重新开始搜索
+          // 重新开始搜索
+          i = 0;
         } else if (end != nullptr && user_cmp->Compare(file_limit, user_end) > 0) {
           // user_end < f.largest 重新设置结束位置
           user_end = file_limit;
           inputs->clear();
-          i = 0;  // 重新开始搜索
+          // 重新开始搜索
+          i = 0;
         }
       }
     }
@@ -692,7 +701,7 @@ class VersionSet::Builder {
   // 每次构造函数执行一次，向每一层的level中添加Fileset
   // Initialize a builder with the files from *base and other info from *vset
   Builder(VersionSet* vset, Version* base) : vset_(vset), base_(base) {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "version set build ");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "version set build");
     base_->Ref();
     BySmallestKey cmp;
     cmp.internal_comparator = &vset_->icmp_;  // 设置内部比较器
@@ -954,7 +963,7 @@ void VersionSet::AppendVersion(Version* v) {
    *      dummy_versions_-> prev_ = v
    *
    *  最终
-   *  dummy <-> A <-> B <-> C <-> v <-> dummy
+   *  dummy_versions_ <-> A <-> B <-> C <-> v <-> dummy_versions_
    */
   v->prev_ = dummy_versions_.prev_;
   v->next_ = &dummy_versions_;
@@ -966,7 +975,7 @@ void VersionSet::AppendVersion(Version* v) {
 /*
  * 1. edit 参数填充
  * 2. 创建新的版本 v, v = edit + current_
- * 3. 创建  MANIFEST 文件(如果不存在)，将 edit 写入 MANIFEST
+ * 3. 创建 MANIFEST 文件(如果不存在)，将 edit 写入 MANIFEST
  * 4. 如果创建了新的 MANIFEST 文件，更新 CURRENT 文件指向它
  * 5. 如果操作成功，将新版本 v 添加到 dummy_versions_ 双向链表中，并更新 current_ 指向 v
  */
@@ -1243,6 +1252,7 @@ void VersionSet::MarkFileNumberUsed(uint64_t number) {
     next_file_number_ = number + 1;
   }
 }
+
 // 设置一个版本的最佳压缩级别
 void VersionSet::Finalize(Version* v) {
   // Precomputed best level for next compaction
@@ -1366,7 +1376,7 @@ uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
   }
   return result;
 }
-// for 循环起始为 current, 结束为 dummy_versions_,这是一个双向循环链表，
+// dummy_versions_ 是一个双向循环链表，
 // 遍历整个 version_set 链表，一个Version 中包含每层的文件，将每层的file
 // 添加到live中
 void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
@@ -1374,7 +1384,8 @@ void VersionSet::AddLiveFiles(std::set<uint64_t>* live) {
     for (int level = 0; level < config::kNumLevels; level++) {
       const std::vector<FileMetaData*>& files = v->files_[level];
       for (size_t i = 0; i < files.size(); i++) {
-        live->insert(files[i]->number);  // 将每一层的文件编号添加到live中
+        // 将每一层的文件编号添加到live中
+        live->insert(files[i]->number);
       }
     }
   }
@@ -1430,12 +1441,13 @@ void VersionSet::GetRange(const std::vector<FileMetaData*>& inputs, InternalKey*
 // Stores the minimal range that covers all entries in inputs1 and inputs2
 // in *smallest, *largest.
 // REQUIRES: inputs is not empty
+// 用于获取两个文件列表合并后的最小和最大键范围。它是 LevelDB 中用于确定压缩操作范围的重要辅助函数。
 void VersionSet::GetRange2(const std::vector<FileMetaData*>& inputs1,
                            const std::vector<FileMetaData*>& inputs2, InternalKey* smallest,
                            InternalKey* largest) {
   std::vector<FileMetaData*> all = inputs1;
-  all.insert(all.end(), inputs2.begin(),
-             inputs2.end());  // 向all后面添加整个inputs2
+  // 向all后面添加整个inputs2
+  all.insert(all.end(), inputs2.begin(), inputs2.end());
   GetRange(all, smallest, largest);
 }
 
@@ -1461,6 +1473,12 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         }
       } else {
         // Create concatenating iterator for the files from this level
+        // note: input[0]和input[1]存的是需要压缩的文件信息，这里为 input[0]和 input[1] 构造迭代器
+        //   LevelFileNumIterator: key() 是文件中的 largest_key, value() 是 (file_number +
+        //   file_size), 长度固定 16 字节
+
+        //   GetFileIterator 返回的是 ldb 文件的迭代器，用 LevelFileNumIterator 迭代器的
+        //   (file_number + file_size) 进行初始化
         list[num++] =
             NewTwoLevelIterator(new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
                                 &GetFileIterator, table_cache_, options);
@@ -1625,9 +1643,8 @@ void AddBoundaryInputs(const InternalKeyComparator& icmp,
 
   // Quick return if compaction_files is empty.
   // 从 compaction_files 中找出最大的 key
-  if (!FindLargestKey(icmp, *compaction_files,
-                      &largest_key)) {  // 这里从compaction_files 获取最大的InternalKey,存到
-                                        // largest_key 中
+  // 这里从 compaction_files 获取最大的 InternalKey,存到 largest_key 中
+  if (!FindLargestKey(icmp, *compaction_files, &largest_key)) {
     return;
   }
 
@@ -1661,8 +1678,8 @@ void AddBoundaryInputs(const InternalKeyComparator& icmp,
 /*
  * 调用栈
  * leveldb::VersionSet::SetupOtherInputs(leveldb::Compaction *) version_set.cc:1646
- * leveldb::VersionSet::CompactRange(int, const leveldb::InternalKey *, const leveldb::InternalKey
- * *) version_set.cc:1734 leveldb::DBImpl::BackgroundCompaction() db_impl.cc:867
+ * leveldb::VersionSet::CompactRange(int, const leveldb::InternalKey *, const leveldb::InternalKey)
+ * version_set.cc:1734 leveldb::DBImpl::BackgroundCompaction() db_impl.cc:867
  * leveldb::DBImpl::BackgroundCall() db_impl.cc:838
  * leveldb::DBImpl::BGWork(void *) db_impl.cc:827
  * leveldb::PosixEnv::BackgroundThreadMain() env_posix.cc:1014
@@ -1673,21 +1690,29 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
   const int level = c->level();
   InternalKey smallest, largest;
 
+  // 为 Level 层级添加边界文件
   AddBoundaryInputs(icmp_, current_->files_[level], &c->inputs_[0]);
+  // 计算 Level 层级输入文件的键范围
   GetRange(c->inputs_[0], &smallest, &largest);
 
+  // 获得 level + 1 层的重合文件
   current_->GetOverlappingInputs(level + 1, &smallest, &largest, &c->inputs_[1]);
+  // 添加边界文件
   AddBoundaryInputs(icmp_, current_->files_[level + 1], &c->inputs_[1]);
 
   // Get entire range covered by compaction
   InternalKey all_start, all_limit;
+  // 计算压缩操作的完整键范围，包括 Level 和 Level+1 层级的所有输入文件
   GetRange2(c->inputs_[0], c->inputs_[1], &all_start, &all_limit);
 
   // See if we can grow the number of inputs in "level" without
   // changing the number of "level+1" files we pick up.
+  // 只有当 level+1 层有输入文件时，才尝试扩展压缩范围
   if (!c->inputs_[1].empty()) {
     std::vector<FileMetaData*> expanded0;
+    // 获得 level 层与 [all_start,all_limit] 重合文件
     current_->GetOverlappingInputs(level, &all_start, &all_limit, &expanded0);
+    // 添加边界文件
     AddBoundaryInputs(icmp_, current_->files_[level], &expanded0);
     const int64_t inputs0_size = TotalFileSize(c->inputs_[0]);
     const int64_t inputs1_size = TotalFileSize(c->inputs_[1]);
@@ -1697,8 +1722,13 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
       InternalKey new_start, new_limit;
       GetRange(expanded0, &new_start, &new_limit);
       std::vector<FileMetaData*> expanded1;
+      // 获得 level +1  层与 [new_start,new_limit] 重合文件
       current_->GetOverlappingInputs(level + 1, &new_start, &new_limit, &expanded1);
+      // 添加边界文件
       AddBoundaryInputs(icmp_, current_->files_[level + 1], &expanded1);
+      // note：检查新的 level+1 层文件数量是否与原来 level+1 层文件数量相同
+      //    如果相同，说明扩展操作不会增加 level+1 层的处理负担
+      //    如果不同，说明扩展操作会导致更多的 level+1 层文件被处理，应放弃扩展
       if (expanded1.size() == c->inputs_[1].size()) {
         Log(options_->info_log, "Expanding@%d %d+%d (%ld+%ld bytes) to %d+%d (%ld+%ld bytes)\n",
             level, int(c->inputs_[0].size()), int(c->inputs_[1].size()), long(inputs0_size),
@@ -1716,6 +1746,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
   // Compute the set of grandparent files that overlap this compaction
   // (parent == level+1; grandparent == level+2)
   if (level + 2 < config::kNumLevels) {
+    // 获取与当前压缩范围重叠的祖父层级文件
     current_->GetOverlappingInputs(level + 2, &all_start, &all_limit, &c->grandparents_);
   }
 
@@ -1730,7 +1761,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 Compaction* VersionSet::CompactRange(int level, const InternalKey* begin, const InternalKey* end) {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
   std::vector<FileMetaData*> inputs;
-  // 将level层与begin,end重合的文件放在 inputs 中没有重合的文件，直接返回
+  // 将 level 层与 begin,end 重合的文件放在 inputs 中
   current_->GetOverlappingInputs(level, begin, end, &inputs);
   if (inputs.empty()) {
     return nullptr;
@@ -1829,10 +1860,17 @@ bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
   return true;
 }
 
+/*
+ * 当处理第一个输出键时，调用 ShouldStopBefore
+ * 由于 seen_key_ 为 false，即使扫描到祖父文件，也不会累加重叠字节数
+ * 函数最后将 seen_key_ 设置为 true，标记已经开始处理输出键
+ * 后续调用 ShouldStopBefore 会累加祖父文件字节数到 overlapped_bytes_
+ */
 bool Compaction::ShouldStopBefore(const Slice& internal_key) {
   const VersionSet* vset = input_version_->vset_;
   // Scan to find earliest grandparent file that contains key.
   const InternalKeyComparator* icmp = &vset->icmp_;
+  // note: grandparent_index_ 这里是递增的，第二次调用不回从 0 开始
   while (grandparent_index_ < grandparents_.size() &&
          icmp->Compare(internal_key, grandparents_[grandparent_index_]->largest.Encode()) > 0) {
     if (seen_key_) {
@@ -1840,6 +1878,7 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
     }
     grandparent_index_++;
   }
+  // seen_key_ 默认是 false, 经过上面的处理，标记该 compaction 的 grandparent_index_ 已经经过处理
   seen_key_ = true;
 
   if (overlapped_bytes_ > MaxGrandParentOverlapBytes(vset->options_)) {

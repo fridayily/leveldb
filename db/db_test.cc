@@ -550,6 +550,7 @@ TEST(RandTest, Uniform) {
   std::cout << histogram_str << std::endl;
 }
 
+
 TEST(CustomTest, BasicWriteRead) {
   Options options;
   options.create_if_missing = true;

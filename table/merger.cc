@@ -177,6 +177,7 @@ void MergingIterator::FindLargest() {
 }
 }  // namespace
 
+
 Iterator* NewMergingIterator(const Comparator* comparator, Iterator** children,
                              int n) {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");

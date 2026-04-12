@@ -5,6 +5,7 @@
 #include "db/version_set.h"
 
 #include "util/logging.h"
+#include "util/mutexlock.h"
 #include "util/testutil.h"
 
 #include "gtest/gtest.h"
@@ -22,8 +23,7 @@ class FindFileTest : public testing::Test {
   }
 
   // add 一次，添加一个文件
-  void Add(const char* smallest, const char* largest,
-           SequenceNumber smallest_seq = 100,
+  void Add(const char* smallest, const char* largest, SequenceNumber smallest_seq = 100,
            SequenceNumber largest_seq = 100) {
     FileMetaData* f = new FileMetaData;
     f->number = files_.size() + 1;
@@ -226,8 +226,7 @@ class AddBoundaryInputsTest : public testing::Test {
     all_files_.clear();
   }
 
-  FileMetaData* CreateFileMetaData(uint64_t number, InternalKey smallest,
-                                   InternalKey largest) {
+  FileMetaData* CreateFileMetaData(uint64_t number, InternalKey smallest, InternalKey largest) {
     FileMetaData* f = new FileMetaData();
     f->number = number;
     f->smallest = smallest;
@@ -244,9 +243,8 @@ TEST_F(AddBoundaryInputsTest, TestEmptyFileSets) {
 }
 
 TEST_F(AddBoundaryInputsTest, TestEmptyLevelFiles) {
-  FileMetaData* f1 =
-      CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
-                         InternalKey(InternalKey("100", 1, kTypeValue)));
+  FileMetaData* f1 = CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
+                                        InternalKey(InternalKey("100", 1, kTypeValue)));
   compaction_files_.push_back(f1);
 
   AddBoundaryInputs(icmp_, level_files_, &compaction_files_);
@@ -256,9 +254,8 @@ TEST_F(AddBoundaryInputsTest, TestEmptyLevelFiles) {
 }
 
 TEST_F(AddBoundaryInputsTest, TestEmptyCompactionFiles) {
-  FileMetaData* f1 =
-      CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
-                         InternalKey(InternalKey("100", 1, kTypeValue)));
+  FileMetaData* f1 = CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
+                                        InternalKey(InternalKey("100", 1, kTypeValue)));
   level_files_.push_back(f1);
 
   AddBoundaryInputs(icmp_, level_files_, &compaction_files_);
@@ -268,15 +265,12 @@ TEST_F(AddBoundaryInputsTest, TestEmptyCompactionFiles) {
 }
 
 TEST_F(AddBoundaryInputsTest, TestNoBoundaryFiles) {
-  FileMetaData* f1 =
-      CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
-                         InternalKey(InternalKey("100", 1, kTypeValue)));
-  FileMetaData* f2 =
-      CreateFileMetaData(1, InternalKey("200", 2, kTypeValue),
-                         InternalKey(InternalKey("200", 1, kTypeValue)));
-  FileMetaData* f3 =
-      CreateFileMetaData(1, InternalKey("300", 2, kTypeValue),
-                         InternalKey(InternalKey("300", 1, kTypeValue)));
+  FileMetaData* f1 = CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
+                                        InternalKey(InternalKey("100", 1, kTypeValue)));
+  FileMetaData* f2 = CreateFileMetaData(1, InternalKey("200", 2, kTypeValue),
+                                        InternalKey(InternalKey("200", 1, kTypeValue)));
+  FileMetaData* f3 = CreateFileMetaData(1, InternalKey("300", 2, kTypeValue),
+                                        InternalKey(InternalKey("300", 1, kTypeValue)));
 
   level_files_.push_back(f3);
   level_files_.push_back(f2);
@@ -289,15 +283,12 @@ TEST_F(AddBoundaryInputsTest, TestNoBoundaryFiles) {
 }
 
 TEST_F(AddBoundaryInputsTest, TestOneBoundaryFiles) {
-  FileMetaData* f1 =
-      CreateFileMetaData(1, InternalKey("100", 3, kTypeValue),
-                         InternalKey(InternalKey("100", 2, kTypeValue)));
-  FileMetaData* f2 =
-      CreateFileMetaData(1, InternalKey("100", 1, kTypeValue),
-                         InternalKey(InternalKey("200", 3, kTypeValue)));
-  FileMetaData* f3 =
-      CreateFileMetaData(1, InternalKey("300", 2, kTypeValue),
-                         InternalKey(InternalKey("300", 1, kTypeValue)));
+  FileMetaData* f1 = CreateFileMetaData(1, InternalKey("100", 3, kTypeValue),
+                                        InternalKey(InternalKey("100", 2, kTypeValue)));
+  FileMetaData* f2 = CreateFileMetaData(1, InternalKey("100", 1, kTypeValue),
+                                        InternalKey(InternalKey("200", 3, kTypeValue)));
+  FileMetaData* f3 = CreateFileMetaData(1, InternalKey("300", 2, kTypeValue),
+                                        InternalKey(InternalKey("300", 1, kTypeValue)));
 
   level_files_.push_back(f3);
   level_files_.push_back(f2);
@@ -311,15 +302,12 @@ TEST_F(AddBoundaryInputsTest, TestOneBoundaryFiles) {
 }
 
 TEST_F(AddBoundaryInputsTest, TestTwoBoundaryFiles) {
-  FileMetaData* f1 =
-      CreateFileMetaData(1, InternalKey("100", 6, kTypeValue),
-                         InternalKey(InternalKey("100", 5, kTypeValue)));
-  FileMetaData* f2 =
-      CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
-                         InternalKey(InternalKey("300", 1, kTypeValue)));
-  FileMetaData* f3 =
-      CreateFileMetaData(1, InternalKey("100", 4, kTypeValue),
-                         InternalKey(InternalKey("100", 3, kTypeValue)));
+  FileMetaData* f1 = CreateFileMetaData(1, InternalKey("100", 6, kTypeValue),
+                                        InternalKey(InternalKey("100", 5, kTypeValue)));
+  FileMetaData* f2 = CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
+                                        InternalKey(InternalKey("300", 1, kTypeValue)));
+  FileMetaData* f3 = CreateFileMetaData(1, InternalKey("100", 4, kTypeValue),
+                                        InternalKey(InternalKey("100", 3, kTypeValue)));
 
   level_files_.push_back(f2);
   level_files_.push_back(f3);
@@ -334,18 +322,14 @@ TEST_F(AddBoundaryInputsTest, TestTwoBoundaryFiles) {
 }
 
 TEST_F(AddBoundaryInputsTest, TestDisjoinFilePointers) {
-  FileMetaData* f1 =
-      CreateFileMetaData(1, InternalKey("100", 6, kTypeValue),
-                         InternalKey(InternalKey("100", 5, kTypeValue)));
-  FileMetaData* f2 =
-      CreateFileMetaData(1, InternalKey("100", 6, kTypeValue),
-                         InternalKey(InternalKey("100", 5, kTypeValue)));
-  FileMetaData* f3 =
-      CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
-                         InternalKey(InternalKey("300", 1, kTypeValue)));
-  FileMetaData* f4 =
-      CreateFileMetaData(1, InternalKey("100", 4, kTypeValue),
-                         InternalKey(InternalKey("100", 3, kTypeValue)));
+  FileMetaData* f1 = CreateFileMetaData(1, InternalKey("100", 6, kTypeValue),
+                                        InternalKey(InternalKey("100", 5, kTypeValue)));
+  FileMetaData* f2 = CreateFileMetaData(1, InternalKey("100", 6, kTypeValue),
+                                        InternalKey(InternalKey("100", 5, kTypeValue)));
+  FileMetaData* f3 = CreateFileMetaData(1, InternalKey("100", 2, kTypeValue),
+                                        InternalKey(InternalKey("300", 1, kTypeValue)));
+  FileMetaData* f4 = CreateFileMetaData(1, InternalKey("100", 4, kTypeValue),
+                                        InternalKey(InternalKey("100", 3, kTypeValue)));
 
   level_files_.push_back(f2);  // (100,6) (100,5)
   level_files_.push_back(f3);  // (100,2) (300,1)
@@ -360,50 +344,59 @@ TEST_F(AddBoundaryInputsTest, TestDisjoinFilePointers) {
   ASSERT_EQ(f3, compaction_files_[2]);
 }
 
-// 代码实现有问题，后续改进
-TEST_F(AddBoundaryInputsTest, DISABLED_TestGetOverlappingInputs) {
-  FileMetaData* f1 =
-      CreateFileMetaData(1, InternalKey("10", 1, kTypeValue),
-                         InternalKey(InternalKey("20", 2, kTypeValue)));
-  FileMetaData* f2 =
-      CreateFileMetaData(2, InternalKey("15", 3, kTypeValue),
-                         InternalKey(InternalKey("30", 4, kTypeValue)));
 
-  std::vector<FileMetaData*> input;
+TEST(VersionSetTest, GetOverlappingInputs) {
+  // Create test environment
+  std::string dbname = "/tmp/db_test";
+  Options options;
+  InternalKeyComparator internal_comparator(BytewiseComparator());
+  auto* vset = new VersionSet(dbname, &options, nullptr, &internal_comparator);
+  vset->SetManifestFileNumberDebug(2);
 
-  level_files_.push_back(f2);
-  level_files_.push_back(f1);
-  InternalKey begin = InternalKey("5", 5, kTypeValue);
-  InternalKey end = InternalKey("15", 6, kTypeValue);
+  // Set a valid manifest file number to avoid assertion failure
+  // Create a temporary directory for the test
 
-  std::string dbname_ = "/tmp/db_test";
-
-  Options options_;
-  InternalKeyComparator internal_comparator_(BytewiseComparator());
-
-  VersionSet* vset_ =
-      new VersionSet(dbname_, &options_, nullptr, &internal_comparator_);
-  port::Mutex mutex_;
-  mutex_.AssertHeld();
-
+  // Create and apply version edit to add files
+  port::Mutex mutex;
   VersionEdit edit;
-  //  edit.SetNextFile(4);
   edit.SetNextFile(5);
-
   edit.SetLogNumber(1);
-  edit.AddFile(0, 1, 20, InternalKey("10", 1, kTypeValue),
-               InternalKey("20", 2, kTypeValue));
-  edit.AddFile(0, 2, 20, InternalKey("15", 1, kTypeValue),
-               InternalKey("30", 2, kTypeValue));
-  vset_->SetLastSequence(3);
-  vset_->MarkFileNumberUsed(1);
-  vset_->LogAndApply(&edit, &mutex_);
+  edit.SetPrevLogNumber(0);
 
-  Version* v = vset_->current();
-  v->GetOverlappingInputs(0, &begin, &end, &input);
-  for (const auto& item : input) {
-    std::cout << item->smallest.user_key().ToString() << std::endl;
+  // Add two files to Level 0
+  edit.AddFile(0, 1, 20, InternalKey("110", 1, kTypeValue),
+               InternalKey("120", 20, kTypeValue));
+  edit.AddFile(0, 2, 20, InternalKey("115", 20, kTypeValue),
+               InternalKey("130", 40, kTypeValue));
+
+  // Mark file numbers as used
+  vset->MarkFileNumberUsed(1);
+  vset->SetLastSequence(3);
+
+  // Apply the edit
+  {
+    MutexLock l(&mutex);
+    Status s = vset->LogAndApply(&edit, &mutex);
+    ASSERT_TRUE(s.ok()) << "LogAndApply failed: " << s.ToString();
   }
-}
 
+  // Get the current version
+  Version* version = vset->current();
+  ASSERT_NE(version, nullptr);
+
+  // Define query range [5, 15]
+  InternalKey begin("105", 50, kTypeValue);
+  InternalKey end("115", 60, kTypeValue);
+
+  // Get overlapping files
+  std::vector<FileMetaData*> input;
+  version->GetOverlappingInputs(0, &begin, &end, &input);
+
+  // Verify result: should return both files since they both overlap with [5, 15]
+  ASSERT_EQ(input.size(), 2);
+
+  // Clean up resources
+  delete vset;
+  options.env->DeleteDir(dbname);
+}
 }  // namespace leveldb

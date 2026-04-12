@@ -313,7 +313,7 @@ void DBImpl::RemoveObsoleteFiles() {
       if (!keep) {
         files_to_delete.push_back(std::move(filename));
         if (type == kTableFile) {
-          SPDLOG_LOGGER_INFO(SpdLogger::Log(),"evict {:06}.ldb from TableCache",number);
+          SPDLOG_LOGGER_INFO(SpdLogger::Log(), "evict {:06}.ldb from TableCache", number);
           table_cache_->Evict(number);
         }
         /*
@@ -661,7 +661,8 @@ void DBImpl::CompactMemTable() {
   if (s.ok()) {
     edit.SetPrevLogNumber(0);
     edit.SetLogNumber(logfile_number_);  // Earlier logs no longer needed
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "LogAndApply logfile_number_: {:06}.log ",logfile_number_);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "LogAndApply logfile_number_: {:06}.log ",
+                       logfile_number_);
     s = versions_->LogAndApply(&edit, &mutex_);
   }
 
@@ -726,9 +727,11 @@ void DBImpl::CompactRange(const Slice* begin, const Slice* end) {
   }
   TEST_CompactMemTable();  // TODO(sanjay): Skip if memtable does not overlap
   for (int level = 0; level < max_level_with_files; level++) {
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "============================ TEST_CompactRange level: {}, begin: {}, end: {}", level,
-                       begin == nullptr ? "nullptr" : begin->ToString(),
-                       end == nullptr ? "nullptr" : end->ToString());
+    SPDLOG_LOGGER_INFO(
+        SpdLogger::Log(),
+        "============================ TEST_CompactRange level: {}, begin: {}, end: {}", level,
+        begin == nullptr ? "nullptr" : begin->ToString(),
+        end == nullptr ? "nullptr" : end->ToString());
     TEST_CompactRange(level, begin, end);
   }
 }
@@ -881,6 +884,7 @@ void DBImpl::BackgroundCompaction() {
   }
 
   // imm_ 为空,这里执行手动 compaction
+  // TEST_CompactRange 中有为 manual_compaction_ 赋值
   Compaction* c;
   bool is_manual = (manual_compaction_ != nullptr);
 
@@ -889,6 +893,7 @@ void DBImpl::BackgroundCompaction() {
     // 手动合并, manual_compaction_ 在 TEST_CompactRange 中设置
     ManualCompaction* m = manual_compaction_;
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "manual compaction begin");
+    // 要压缩的文件会存在 c 中
     c = versions_->CompactRange(m->level, m->begin, m->end);
     m->done = (c == nullptr);
     // note: m->done 为 true 时表示压缩结束
@@ -1016,6 +1021,9 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   return s;
 }
 
+/*
+ *  将 compact 的 table 写到文件中，即生成最早的 ldb 文件
+ */
 Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* input) {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
@@ -1051,7 +1059,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
   compact->outfile = nullptr;
 
   if (s.ok() && current_entries > 0) {
-    // Verify that the table is usable
+    // Verify that the table is usable， 将刚生成的 ldb 文件放入缓存
     Iterator* iter = table_cache_->NewIterator(ReadOptions(), output_number, current_bytes);
     s = iter->status();
     delete iter;
@@ -1061,6 +1069,8 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
           (unsigned long long)current_entries, (unsigned long long)current_bytes);
     }
   }
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "end, generated table {}@{} {} keys, {} bytes",
+                     output_number, compact->compaction->level(), current_entries, current_bytes);
   return s;
 }
 
@@ -1199,6 +1209,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         compact->current_output()->smallest.DecodeFrom(key);
       }
       compact->current_output()->largest.DecodeFrom(key);
+      // 这里是真实的用户写入的 key,value
       compact->builder->Add(key, input->value());
 
       // Close output file if it is big enough
@@ -1822,7 +1833,8 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
     // Create new log and a corresponding memtable.
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     WritableFile* lfile;
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create new LogFile {} to write", LogFileName(dbname, new_log_number));
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create new LogFile {} to write",
+                       LogFileName(dbname, new_log_number));
     s = options.env->NewWritableFile(LogFileName(dbname, new_log_number), &lfile);
     if (s.ok()) {
       edit.SetLogNumber(new_log_number);

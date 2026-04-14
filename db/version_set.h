@@ -162,7 +162,8 @@ class Version {
   // List of files per level
   std::vector<FileMetaData*> files_[config::kNumLevels];
 
-  // Next file to compact based on seek stats. 需要 compact 的文件
+  // Next file to compact based on seek stats.
+  // 需要 compact 的文件
   FileMetaData* file_to_compact_;
   int file_to_compact_level_;
 

@@ -132,7 +132,8 @@ class DBIter : public Iterator {
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   Slice k = iter_->key(); // 获取 internal_key
 
-  size_t bytes_read = k.size() + iter_->value().size(); // 获取key(internal_key) +value长度
+  // 获取key(internal_key) +value长度
+  size_t bytes_read = k.size() + iter_->value().size();
   // 如果剩余能扣除的字节数小于需要减去的字节数，则重新设置 bytes_until_read_sampling_
   // 添加一个随机值，下次这个随机值快要扣除完的时候调用 RecordReadSample
   // 进入 while 循环可能会触发 Compaction
@@ -143,7 +144,8 @@ inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
     db_->RecordReadSample(k); // 可能触发 Compaction
   }
   assert(bytes_until_read_sampling_ >= bytes_read);
-  bytes_until_read_sampling_ -= bytes_read; // 每次迭代器读取，都会从 bytes_until_read_sampling_中减去 bytes_read
+  // 每次迭代器读取，都会从 bytes_until_read_sampling_中减去 bytes_read
+  bytes_until_read_sampling_ -= bytes_read;
 
   if (!ParseInternalKey(k, ikey)) {
     status_ = Status::Corruption("corrupted internal key in DBIter");
@@ -194,9 +196,11 @@ void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
   assert(iter_->Valid());
   assert(direction_ == kForward);
   do {
-    ParsedInternalKey ikey; //ikey.sequence 是存入key 的时候的sequence
-    // iter_ 中的 key 是 internal_key，这里查找第一个key 存在，且key的版本号小于等于 sequence_的迭代器，找到返回true
-    // sequence_ 是数据库读取是的版本号，如果查找的key 的版本号小于等于 sequence_，返回true，可以继续判断
+    ParsedInternalKey ikey;
+    // ikey.sequence 是存入key 的时候的sequence
+    // iter_ 中的 key 是 internal_key，这里查找第一个key 存在，
+    // 且 key 的版本号小于等于 sequence_ 的迭代器，找到返回 true
+    // sequence_ 是数据库读取是的版本号，如果查找的 key 的版本号小于等于 sequence_，返回true，可以继续判断
     if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
       switch (ikey.type) {
         case kTypeDeletion:
@@ -206,7 +210,8 @@ void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
           skipping = true;
           break;
         case kTypeValue:
-          if (skipping && // 这里的迭代器是skip_list,key 都是有序的
+          if (skipping &&
+              // 这里的迭代器是 skip_list,key 都是有序的
               // put(key1) put(key1) del(key1)
               // 结果形如 key1_3_(kTypeDeletion)  key1_2_(kTypeValue)  key1_1_(kTypeValue)
               // 第一次读取出 key1_3,是标记为删除的，skipping = true
@@ -321,7 +326,8 @@ void DBIter::SeekToFirst() {
   direction_ = kForward;
   ClearSavedValue();
   iter_->SeekToFirst();
-  if (iter_->Valid()) { // 迭代器指向结点不为空即有效
+  if (iter_->Valid()) {
+    // 迭代器指向结点不为空即有效
     FindNextUserEntry(false, &saved_key_ /* temporary storage */);
   } else {
     valid_ = false;

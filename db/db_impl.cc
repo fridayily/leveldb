@@ -893,12 +893,13 @@ void DBImpl::BackgroundCompaction() {
     // 手动合并, manual_compaction_ 在 TEST_CompactRange 中设置
     ManualCompaction* m = manual_compaction_;
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "manual compaction begin");
-    // 要压缩的文件会存在 c 中
+    // 这里并没有进行压缩，而是将要压缩的文件信息存在 c 中
     c = versions_->CompactRange(m->level, m->begin, m->end);
     m->done = (c == nullptr);
     // note: m->done 为 true 时表示压缩结束
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "manual compaction end: done: {}", m->done);
     if (c != nullptr) {
+      // note: 由于每个层级文件大小的限制，可能只会压缩指定范围的部分文件
       manual_end = c->input(0, c->num_input_files(0) - 1)->largest;
     }
     Log(options_.info_log, "Manual compaction at level-%d from %s .. %s; will stop at %s\n",
@@ -942,6 +943,7 @@ void DBImpl::BackgroundCompaction() {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create CompactionState");
     CompactionState* compact = new CompactionState(c);
     status = DoCompactionWork(compact);
+    // note: DoCompactionWork 执行出错时，已经记录了 RecordBackgroundError，这里重复 ？？？
     if (!status.ok()) {
       RecordBackgroundError(status);
     }
@@ -1014,6 +1016,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 
   // Make the output file
   std::string fname = TableFileName(dbname_, file_number);
+  // note: 这里初始化了 compact->outfile
   Status s = env_->NewWritableFile(fname, &compact->outfile);
   if (s.ok()) {
     compact->builder = new TableBuilder(options_, compact->outfile);
@@ -1022,7 +1025,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 }
 
 /*
- *  将 compact 的 table 写到文件中，即生成最早的 ldb 文件
+ *  将 compact 的 table 写到文件中，即生成 ldb 文件
  */
 Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* input) {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
@@ -1064,6 +1067,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact, Iterator* in
     s = iter->status();
     delete iter;
     if (s.ok()) {
+      // compaction->level() 是被正在被压缩到级别
       Log(options_.info_log, "Generated table #%llu@%d: %lld keys, %lld bytes",
           (unsigned long long)output_number, compact->compaction->level(),
           (unsigned long long)current_entries, (unsigned long long)current_bytes);
@@ -1078,19 +1082,26 @@ Status DBImpl::InstallCompactionResults(CompactionState* compact) {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
 
   mutex_.AssertHeld();
+  // num_input_files(0) 当前层级输入文件数量
+  // num_input_files(1) 下一层级输入文件数量
   Log(options_.info_log, "Compacted %d@%d + %d@%d files => %lld bytes",
       compact->compaction->num_input_files(0), compact->compaction->level(),
       compact->compaction->num_input_files(1), compact->compaction->level() + 1,
       static_cast<long long>(compact->total_bytes));
 
   // Add compaction outputs
+  // 将压缩的输入文件标记为删除
   compact->compaction->AddInputDeletions(compact->compaction->edit());
   const int level = compact->compaction->level();
+  // 遍历压缩生成的所有输出文件
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
+    // 将每个输出文件添加到 level + 1 层
+    // 记录每个文件的编号、大小、最小键和最大键
     compact->compaction->edit()->AddFile(level + 1, out.number, out.file_size, out.smallest,
                                          out.largest);
   }
+  // 调用 LogAndApply 方法，将 VersionEdit 中的变更应用到数据库版本中
   return versions_->LogAndApply(compact->compaction->edit(), &mutex_);
 }
 
@@ -1108,8 +1119,15 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
   const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
-  Log(options_.info_log, "Compacting %d@%d + %d@%d files", compact->compaction->num_input_files(0),
-      compact->compaction->level(), compact->compaction->num_input_files(1),
+  // 这是压缩输入的日志
+  Log(options_.info_log, "Compacting %d@%d + %d@%d files",
+      // level 层的文件数量
+      compact->compaction->num_input_files(0),
+      // level 层的级别
+      compact->compaction->level(),
+      // level +1 层的文件数量
+      compact->compaction->num_input_files(1),
+      // level +1 层的的级别
       compact->compaction->level() + 1);
 
   assert(versions_->NumLevelFiles(compact->compaction->level()) > 0);
@@ -1147,6 +1165,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     }
 
     Slice key = input->key();
+    /*
+     * ShouldStopBefore 一般返回 false，后面代码会执行 compact->builder->Add(key, input->value());
+     *           将 k,v 添加到 table 中
+     * 直到 overlapped_bytes_ 超过阈值，将 table 中的数据写到 ldb 文件中，主要目的减少与祖父文件的过度重叠
+     * 下面还有一个根据 builder->FileSize() 大小来执行 FinishCompactionOutputFile
+     * 是真正保证输出文件大小合理的
+     *
+     */
     if (compact->compaction->ShouldStopBefore(key) && compact->builder != nullptr) {
       status = FinishCompactionOutputFile(compact, input);
       if (!status.ok()) {
@@ -1158,10 +1184,16 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
     bool drop = false;
     if (!ParseInternalKey(key, &ikey)) {
       // Do not hide error keys
+      // 是非法的 key
       current_user_key.clear();
       has_current_user_key = false;
       last_sequence_for_key = kMaxSequenceNumber;
     } else {
+      /*
+       * !has_current_user_key：第一次处理用户键
+       * user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) != 0：遇到新的用户键
+       * 即相同的用户键不会进入此函数，同一个用户键可能有多个版本，通过序列号区分，这里取第一个，即最新的
+       */
       if (!has_current_user_key ||
           user_comparator()->Compare(ikey.user_key, Slice(current_user_key)) != 0) {
         // First occurrence of this user key
@@ -1170,6 +1202,21 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         last_sequence_for_key = kMaxSequenceNumber;
       }
 
+      /*
+       *  假设文件中  key1@121@Put  key1@120@put
+       *  第一次碰到 key1, last_sequence_for_key = kMaxSequenceNumber, drop = false
+       *         并设置 last_sequence_for_key = ikey.sequence;
+       *  第二次碰到 key1, last_sequence_for_key 就是这个 key 排名最前面的 sequence 121
+       *  如果较新序列号小于等于 smallest_snapshot，说明所有版本都可以被丢弃
+       *
+       *  从用户角度看：
+       *    每次写入操作都会更新键的当前值
+       *    读取操作总是返回键的最新值，逻辑上，一个键对应一个值
+       *  从内部实现看：
+       *    LevelDB 使用版本控制机制，通过序列号（sequence number）区分同一个键的不同版本
+       *    当更新一个键时，LevelDB 不会覆盖旧值，而是添加一个新的版本
+       *    旧版本会在压缩过程中被清理，但会保留快照需要的版本
+       */
       if (last_sequence_for_key <= compact->smallest_snapshot) {
         // Hidden by an newer entry for same user key
         drop = true;  // (A)
@@ -1197,9 +1244,12 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
         (int)last_sequence_for_key, (int)compact->smallest_snapshot);
 #endif
 
+    // drop 为 false 时将 k,v 写入 TableBuild
+    //      为 ture  时不写入
     if (!drop) {
       // Open output file if necessary
       if (compact->builder == nullptr) {
+        // note: 构建 TableBuilder，用于写入 k,v
         status = OpenCompactionOutputFile(compact);
         if (!status.ok()) {
           break;

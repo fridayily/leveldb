@@ -50,7 +50,9 @@ Writer::Writer(WritableFile* dest, uint64_t dest_length)
 Writer::~Writer() = default;
 // 将要写的数据添加到log 中，32K一个block
 Status Writer::AddRecord(const Slice& slice) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "size: {}",slice.size());
+  // SPDLOG_LOGGER_INFO(SpdLogger::Log(),
+  //                    "LogWriter: Append record to {} - offset: {} size: {} bytes + 7 bytes Header
+  //                    ",dest_->GetFileName(), block_offset_, slice.size());
   const char* ptr = slice.data();
   size_t left = slice.size();  // 数据剩余未写入的字节数
 
@@ -116,7 +118,11 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t length) 
   //    spdlog::info("EmitPhysicalRecord {}", int(t));
   //  std::cout << "EmitPhysicalRecord " << t << std::endl;
   //  SpdLogger::Log()->debug("EmitPhysicalRecord {}", int(t));
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "emit {} record", RecordTypeToString(t));
+  // SPDLOG_LOGGER_INFO(SpdLogger::Log(), "emit {} record", RecordTypeToString(t));
+  SPDLOG_LOGGER_INFO(
+      SpdLogger::Log(),
+      "LogWriter: Append record to {} - offset: {} size: {} Header: 7 RecordType: {}",
+      dest_->GetFileName(), block_offset_, length, RecordTypeToString(t));
   assert(length <= 0xffff);                                    // Must fit in two bytes // 小于 64K
   assert(block_offset_ + kHeaderSize + length <= kBlockSize);  // 是否有足够的空间写
 

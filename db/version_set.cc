@@ -662,8 +662,7 @@ std::string Version::DebugString() const {
   }
   return r;
 }
-// VersionSet 的一个内部类，edit要添加数据到 VersionSet
-// 时，要先更新该类成员变量数据
+// VersionSet 的一个内部类，edit要添加数据到 VersionSet 时，要先更新该类成员变量数据
 // A helper class so we can efficiently apply a
 // whole sequence of edits to a particular state without creating intermediate
 // Versions that contain full copies of the intermediate state.
@@ -1038,7 +1037,8 @@ Status VersionSet::LogAndApply(VersionEdit* edit, port::Mutex* mu) {
       // 将 edit 信息编码为 record，
       // 即将文件修改信息（添加、删除文件的元信息）写到 MANIFEST 文件中
       edit->EncodeTo(&record);
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Add record to MANIFEST-{:06}", manifest_file_number_);
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "Append {} bytes version edit record to MANIFEST-{:06d}",
+                         record.size(), manifest_file_number_);
       s = descriptor_log_->AddRecord(record);  // 添加 record 到 MANIFEST 文件中
       if (s.ok()) {
         s = descriptor_file_->Sync();
@@ -1133,7 +1133,9 @@ Status VersionSet::Recover(bool* save_manifest) {
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "read {} record", read_records);
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(),
+                         "Recovering version set: read {} records ({:d} bytes total) from {}",
+                         read_records, record.size(),dscname);
       ++read_records;
       VersionEdit edit;
       // MANIFEST 文件配置读到 record,record 解码到 edit 中
@@ -1301,7 +1303,7 @@ void VersionSet::Finalize(Version* v) {
  */
 Status VersionSet::WriteSnapshot(log::Writer* log) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin ");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
   // Save metadata
   VersionEdit edit;
   edit.SetComparatorName(icmp_.user_comparator()->Name());
@@ -1490,7 +1492,8 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         }
       } else {
         // Create concatenating iterator for the files from this level
-        // note: input[0] 和 input[1] 存的是需要压缩的文件信息，这里为 input[0]和 input[1] 构造迭代器
+        // note: input[0] 和 input[1] 存的是需要压缩的文件信息，这里为 input[0]和 input[1]
+        // 构造迭代器
         //   LevelFileNumIterator: key() 是文件中的 largest_key, value() 是 (file_number +
         //   file_size), 长度固定 16 字节
 
@@ -1577,8 +1580,8 @@ Compaction* VersionSet::PickCompaction() {
     // Note that the next call will discard the file we placed in
     // c->inputs_[0] earlier and replace it with an overlapping set
     // which will include the picked file.
-    // 查找 Level 0 中所有与 [smallest, largest] 范围重叠的文件, 替换 c->inputs_[0] 为这些重叠文件的集合
-    // note: Level 0 的文件可能相互重叠，只压缩一个文件会导致数据不一致
+    // 查找 Level 0 中所有与 [smallest, largest] 范围重叠的文件, 替换 c->inputs_[0]
+    // 为这些重叠文件的集合 note: Level 0 的文件可能相互重叠，只压缩一个文件会导致数据不一致
     //    需要找到所有与初始文件重叠的文件，确保压缩操作的完整性
     current_->GetOverlappingInputs(0, &smallest, &largest, &c->inputs_[0]);
     assert(!c->inputs_[0].empty());
@@ -1804,7 +1807,8 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
   // to be applied so that if the compaction fails, we will try a different
   // key range next time.
   // 用于记录每个层级下次压缩的起始位置。它存储了每个层级上次压缩结束时的最大键，作为下次压缩的起点。
-  // 如果压缩失败，内存中的 compact_pointer_ 已经更新，下次压缩会从新的位置开始，避免重复尝试失败的压缩
+  // 如果压缩失败，内存中的 compact_pointer_
+  // 已经更新，下次压缩会从新的位置开始，避免重复尝试失败的压缩
   compact_pointer_[level] = largest.Encode().ToString();
   c->edit_.SetCompactPointer(level, largest);
 }
@@ -1839,7 +1843,8 @@ Compaction* VersionSet::CompactRange(int level, const InternalKey* begin, const 
   c->input_version_ = current_;
   c->input_version_->Ref();
   c->inputs_[0] = inputs;
-  // c->inputs_[1] 还没赋值，是在下面函数中通过获取 inputs_[0]的[smallest,largest] 有重复的文件来赋值
+  // c->inputs_[1] 还没赋值，是在下面函数中通过获取 inputs_[0]的[smallest,largest]
+  // 有重复的文件来赋值
   SetupOtherInputs(c);
   return c;
 }
@@ -1926,7 +1931,8 @@ bool Compaction::IsBaseLevelForKey(const Slice& user_key) {
  * note: current_->GetOverlappingInputs(level + 2, &all_start, &all_limit, &c->grandparents_);
  *       说明 grandparents_ 中保存的文件肯定会和(all_start,all_limit) 重复
  *
- * note: 计算当前输出文件与祖父文件的重叠字节数, 当重叠超过阈值时停止当前输出文件的构建，开始新的输出文件
+ * note: 计算当前输出文件与祖父文件的重叠字节数,
+ * 当重叠超过阈值时停止当前输出文件的构建，开始新的输出文件
  *
  * 假设祖父文件：
  *    F1: 键范围 [A, K], 大小 100KB

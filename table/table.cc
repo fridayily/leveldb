@@ -187,7 +187,7 @@ static void ReleaseBlock(void* arg, void* h) {
 // arg 是 table 类型
 // 里面包含 cache_id , 这个id + offset 组成 cache 的key
 //        根据这个 key 在 block_cache 中查找对应的 block 是否存在
-// 里面包含 ldb 文件的id, 如果 cache 中找不到，则在ldb文件中读取对应的data_block
+// 里面包含 ldb 文件的id, 如果 cache 中找不到，则在 ldb 文件中读取对应的 data_block
 Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
                              const Slice& index_value) {
   // 传入的参数就是 Table* 型的，现在转回去
@@ -214,7 +214,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
       // 将 cache_id 和 offset 封装成一个 key
       Slice key(cache_key_buffer, sizeof(cache_key_buffer));
       // 读取某个数据块时，先检查数据块是否在 block_cache 中
-      // 这里的key由cache_id 和 offset 组成
+      // 这里的key由 cache_id 和 offset 组成
       cache_handle = block_cache->Lookup(key);
       // 如果在 block_cache 找到，直接从缓存块中取得数据块
       if (cache_handle != nullptr) {

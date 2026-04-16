@@ -310,6 +310,7 @@ class PosixWritableFile final : public WritableFile {
       Close();
     }
   }
+
   /* 将数据添加到 pos_中 ，只要没有超过缓冲区，可一直append
    * 超过缓存区后写到文件中
    * */
@@ -388,6 +389,10 @@ class PosixWritableFile final : public WritableFile {
     }
 
     return SyncFd(fd_, filename_);
+  }
+
+  std::string GetFileName() const override {
+    return filename_;
   }
 
  private:

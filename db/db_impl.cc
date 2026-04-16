@@ -138,6 +138,42 @@ static int TableCacheSize(const Options& sanitized_options) {
 }
 
 // 实现数据库的操作
+/*
+ * table_cache_: 缓存 SST 文件的表对象（包含索引块、元数据块等）
+ *
+ * options_.block_cache: 缓存从 SST 文件中读取的数据块
+ *    缓存键：由 cache_id 和数据块偏移量组成
+ *    缓存值：解压后的数据块
+ *    容量计算：按数据块大小计算 charge
+ *    插入操作：
+ *      创建 LRUHandle 结构，包含键值对和元数据
+ *      将其插入到哈希表中
+ *      将其添加到 in_use_ 链表（因为刚被引用）
+ *      如果缓存容量不足，触发淘汰机制
+ *    查找操作
+ *      从哈希表中查找键对应的 LRUHandle
+ *      如果找到，增加引用计数并将其移到 in_use_ 链表
+ *      返回找到的条目
+ *    释放操作
+ *      减少引用计数
+ *      如果引用计数为 1，将条目移到 lru_ 链表（变为未使用状态）
+ *      如果引用计数为 0，删除条目并释放资源
+ *    淘汰机制
+ *      当缓存容量不足时，从 lru_ 链表的尾部（最旧的条目）开始淘汰
+ *      淘汰条目时，从哈希表和链表中移除，并调用删除回调释放资源
+ *
+ *  查找用户指定 key 的过程
+ *  1. memtable
+ *  2. Immutable
+ *  3. 遍历所有 ldb 文件
+ *    (1) Status s = FindTable(file_number, file_size, &handle);
+ *          获取 user_key 所在  file_number 和在 ldb 文件中的 data_block 的 handle
+ *    (2) cache_id = table->rep_->cache_id
+ *    (3) block_cache_key = cache_id + handle.offset
+ *    (4) Cache::Handle* cache_handle = block_cache->Lookup(key);
+ *        block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
+ *        然后在这个 block 中查找数据
+ */
 DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
     : env_(raw_options.env),
       internal_comparator_(raw_options.comparator),        // 比较器
@@ -225,13 +261,13 @@ Status DBImpl::NewDB() {
   }
   {
     // 计算所有 log record type 的 crc32
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create and write a record to {}", manifest);
 
     log::Writer log(file);
     std::string record;
     new_db.EncodeTo(&record);
     // 将 VersionEdit 编码后的数据写到 Log 文件中
     s = log.AddRecord(record);
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "write {} bytes record to {}",record.size(), manifest);
     if (s.ok()) {
       s = file->Sync();
     }

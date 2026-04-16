@@ -171,6 +171,7 @@ class DBImpl : public DB {
   const std::string dbname_;
 
   // table_cache_ provides its own synchronization
+  // 缓存 SST 文件的表对象（包含索引块、元数据块等）
   TableCache* const table_cache_;
 
   // Lock over the persistent DB state.  Non-null iff successfully acquired.

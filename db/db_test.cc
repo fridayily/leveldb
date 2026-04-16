@@ -612,7 +612,7 @@ void PrintDbStat(DB * db) {
   printSeparator();
 }
 
-TEST(CustomTest, BasicBatchWriteRead) {
+TEST(CustomDBTest, BasicBatchWriteRead) {
   // options.env 被 Env::Default() 初始化
   Options options;
   options.create_if_missing = true;
@@ -1056,17 +1056,45 @@ TEST_F(DBTest, GetLevel0Ordering) {
   } while (ChangeOptions());
 }
 
-TEST_F(DBTest, GetOrderedByLevelsDemo) {
-  Put("a", "v1");
-  Put("b", "v2");
-  Put("c", "v3");
-  Put("d", "v4");
-  Put("e", "v5");
-  Compact("a", "c");
-  Put("f", "v6");
+TEST(CustomDBTest, GetOrderedByLevels) {
+  Options options;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.filter_policy = NewBloomFilterPolicy(10);
+  options.block_restart_interval = 2;
 
-  dbfull()->TEST_CompactMemTable();
-  ASSERT_EQ("v1", Get("a"));
+  const std::string dbname = "/tmp/db_test";
+  DB* db = nullptr;
+  Status status = DestroyDB(dbname, options);
+  ASSERT_TRUE(status.ok());
+  status = DB::Open(options, dbname, &db);
+  ASSERT_TRUE(status.ok()) << status.ToString();
+  constexpr WriteOptions w_opt;
+  constexpr ReadOptions r_opt;
+  db->Put(w_opt,"a","v1");
+  db->Put(w_opt,"b","v2");
+  db->Put(w_opt,"c","v3");
+  db->Put(w_opt,"d","v4");
+  db->Put(w_opt,"e","v5");
+  auto a = Slice("a");
+  auto c = Slice("c");
+  db->CompactRange(&a,&c);
+  std::string v;
+  status = db->Get(r_opt,c,&v);
+  ASSERT_TRUE(status.ok());
+  ASSERT_EQ(v,"v3");
+  db->Put(w_opt,"c","v6");
+  v.clear();
+  status = db->Get(r_opt,c,&v);
+  ASSERT_TRUE(status.ok());
+  ASSERT_EQ(v,"v6");
+  auto* db_full =  reinterpret_cast<DBImpl*>(db);
+  db_full->TEST_CompactMemTable();
+  v.clear();
+  status = db->Get(r_opt,c,&v);
+  ASSERT_TRUE(status.ok());
+  ASSERT_EQ(v,"v6");
+  delete db;
 }
 
 TEST_F(DBTest, GetOrderedByLevels) {

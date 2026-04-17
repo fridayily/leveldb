@@ -183,11 +183,11 @@ static void ReleaseBlock(void* arg, void* h) {
 // Convert an index iterator value (i.e., an encoded BlockHandle)
 // into an iterator over the contents of the corresponding block.
 // 当读取某个数据块时，先检查是否在block_cache中，存在就直接读取
-// 不存在就读取文件，然后在存入block_cache 中
-// arg 是 table 类型
-// 里面包含 cache_id , 这个id + offset 组成 cache 的key
+// 不存在就读取文件，然后在存入 block_cache 中
+// arg 是 table 类型变量
+// 该变量包含 cache_id , cache_id + offset 组成 block_cache 的key
 //        根据这个 key 在 block_cache 中查找对应的 block 是否存在
-// 里面包含 ldb 文件的id, 如果 cache 中找不到，则在 ldb 文件中读取对应的 data_block
+// 该变量包含 ldb 文件的id, 如果 cache 中找不到，则在 ldb 文件中读取对应的 data_block
 Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
                              const Slice& index_value) {
   // 传入的参数就是 Table* 型的，现在转回去
@@ -204,6 +204,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
   Status s = handle.DecodeFrom(&input);
   // We intentionally allow extra stuff in index_value so that we
   // can add more features in the future.
+
 
   if (s.ok()) {
     BlockContents contents;
@@ -244,10 +245,10 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
     }
   }
 
-  Iterator* iter;          // 重新构造个迭代器
-  if (block != nullptr) {  // data_block 的迭代器
-    iter = block->NewIterator(
-        table->rep_->options.comparator);  // 这里的data_block
+  Iterator* iter;
+  if (block != nullptr) {
+    // data_block 的迭代器
+    iter = block->NewIterator(table->rep_->options.comparator);
     if (cache_handle == nullptr) {
       iter->RegisterCleanup(&DeleteBlock, block, nullptr);  // 注册清除函数
     } else {

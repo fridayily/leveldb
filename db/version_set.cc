@@ -359,7 +359,7 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
       if (ucmp->Compare(user_key, f->smallest.user_key()) < 0) {
         // All of "f" is past any data for user_key 要查找的key 比 返回的 f
         // 的最小key还小，即不再范围内
-      } else {
+      } else { // func = leveldb::Version::Get::Match
         if (!(*func)(arg, level, f)) {
           return;
         }
@@ -384,12 +384,19 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
     VersionSet* vset;
     Status s;
     bool found;
-    // 类中定义的静态函数，
+    // 类中定义的静态函数
+    /*
+    * State::Match(void *, int, leveldb::FileMetaData *) version_set.cc:389
+    * leveldb::Version::ForEachOverlapping(leveldb::Slice, leveldb::Slice, void *, bool (*)(void *, int, leveldb::FileMetaData *)) version_set.cc:363
+    * leveldb::Version::Get(const leveldb::ReadOptions &, const leveldb::LookupKey &, std::string *, leveldb::Version::GetStats *) version_set.cc:447
+    * leveldb::DBImpl::Get(const leveldb::ReadOptions &, const leveldb::Slice &, std::string *) db_impl.cc:1445
+     */
     static bool Match(void* arg, int level, FileMetaData* f) {
       State* state = reinterpret_cast<State*>(arg);
 
       if (state->stats->seek_file == nullptr &&
-          state->last_file_read != nullptr) {  // 这次查找超过一次
+          state->last_file_read != nullptr) {
+        // Macth 函数调用超过一次
         // We have had more than one seek for this read.  Charge the 1st file.
         state->stats->seek_file = state->last_file_read;
         state->stats->seek_file_level = state->last_file_read_level;
@@ -397,8 +404,8 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
       // 之前没有seek 过，即第一次seek
       state->last_file_read = f;
       state->last_file_read_level = level;
-      // 先在缓存中查找key,缓存中没有再在文件中查找，并将文件(ldb文件id和
-      // 存储key的 index_block)存到缓存
+      // 先在缓存中查找key,缓存中没有再在文件中查找，
+      // 并将文件(ldb文件id和存储key的 index_block) 存到缓存
       // SaveValue 是一个回调函数，用于保存查找的结果
       state->s = state->vset->table_cache_->Get(*state->options, f->number, f->file_size,
                                                 state->ikey, &state->saver, SaveValue);
@@ -532,19 +539,38 @@ bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
   return SomeFileOverlapsRange(vset_->icmp_, (level > 0), files_[level], smallest_user_key,
                                largest_user_key);
 }
-// 决定SST table 位于那一层
-// 设置 level=0
-// 如果第0层没有重叠，继续判断 （最多两次循环）
-//    (1) 如果在第level+1层中有重叠，====> 跳出循环 返回 level
-//    (2) 如果在第level+1层中没有重叠
-//   （3）获取的 level +2 层中与待插入key重叠的文件
-//   （4）获取这些文件的大小
-//   （5）如果计算的文件大小大于20M ====> 跳出循环 返回 level
-//    (6) 如果小于20M, level+1, 跳到第（1）步
-// 如果第0层有重叠，则level = 0
-//
 
-// 确定 memtable 的输出应该位于哪一层
+
+/*
+ *   确定 memtable 的输出应该位于哪一层
+ *   减少压缩次数
+ *      尽量将内存表输出推送到更高的层级，减少后续的压缩操作
+ *   避免写入放大
+ *      控制祖父层级的重叠大小，防止压缩时需要处理过多的重叠文件
+ *   平衡数据分布
+ *      确保数据在各层级合理分布，提高查询性能
+ *   适应数据特性
+ *      根据键范围的重叠情况，动态选择合适的层级
+ *
+ *   首先假设输出到 level 0, 检查是否与 level0 的文件有重叠
+ *   如果有重叠
+ *      保留在 level 0
+ *   如果没有重叠
+ *      尝试推送到更高层，循环检查达到 config::kMaxMemCompactLevel
+ *      层级选择条件：
+ *        是否与（level + 1）键范围有重叠
+ *            有重叠则停止向上推送
+ *        是否与祖父层级（level + 2）的重叠文件总大小超过阈值
+ *            如果没超过，继续向上推送，即 level++
+ *            如果超过停止向上推送，写入到 ldb 文件留在该层
+ *
+ *  case1:
+ *    level 0 文件有重叠， 选择 level 0
+ *  case2:
+ *    level 0 无重叠，level 1 无重叠，level 2 无重叠, level3 有重叠且未超过阈值, 选择 level 2
+ *  case3:
+ *    level 0 无重叠，level 1 无重叠, level 2 有重叠，总大小超过阈值, 选择 level 1
+ */
 int Version::PickLevelForMemTableOutput(const Slice& smallest_user_key,
                                         const Slice& largest_user_key) {
   int level = 0;  // 有重叠返回true，无重叠返回false,说明有重叠，设置为level0,否则进一步判断

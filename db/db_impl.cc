@@ -856,6 +856,7 @@ void DBImpl::RecordBackgroundError(const Status& s) {
     bg_error_ = s;
     background_work_finished_signal_.SignalAll();
   }
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"bg_error_: {}",bg_error_.ToString());
 }
 
 void DBImpl::MaybeScheduleCompaction() {

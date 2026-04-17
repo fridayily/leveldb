@@ -62,6 +62,9 @@ class LEVELDB_EXPORT Table {
   friend class TableCache;
   struct Rep;
 
+  // note: 这是一个静态成员函数，不能直接访问 Table 类的成员变量和方法
+  // BlockReader 被用作 TwoLevelIterator 的回调函数
+  // 回调函数需要是静态的，以便可以作为函数指针传递
   static Iterator* BlockReader(void*, const ReadOptions&, const Slice&);
 
   explicit Table(Rep* rep) : rep_(rep) {}

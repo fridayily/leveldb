@@ -1388,7 +1388,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options, SequenceNumber
     imm_->Ref();
   }
   versions_->current()->AddIterators(options, &list);
-  // 如果list.size()=1,则internal_iter就是list[0]中保存的迭代器
+  // 如果 list.size()=1, 则 internal_iter 就是 list[0] 中保存的迭代器
   Iterator* internal_iter = NewMergingIterator(&internal_comparator_, &list[0], list.size());
   versions_->current()->Ref();
 
@@ -1437,10 +1437,17 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key, std::string* va
   {
     mutex_.Unlock();
     // First look in the memtable, then in the immutable memtable (if any).
-    LookupKey lkey(key, snapshot);    // 根据最新的 sequence 构造 lookupkey
-    if (mem->Get(lkey, value, &s)) {  // 先在 mem 中查找
+    // 根据最新的 sequence 构造 lookupkey
+    LookupKey lkey(key, snapshot);
+    /*
+     * note:
+     *   1. 先在 MemTable 中查找
+     *   2. 再在 Immutable MemTable 中查找
+     *   3. 在 current 指向的 level0-level6 中查找
+     */
+    if (mem->Get(lkey, value, &s)) {
       // Done
-    } else if (imm != nullptr && imm->Get(lkey, value, &s)) {  // 再在 imm 中查找
+    } else if (imm != nullptr && imm->Get(lkey, value, &s)) {
       // Done
     } else {
       s = current->Get(options, lkey, value, &stats);

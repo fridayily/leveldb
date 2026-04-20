@@ -261,6 +261,7 @@ class DBTest : public testing::Test {
   // test.  Return false if there are no more configurations to test.
   // 改变选项，进行下一个测试
   bool ChangeOptions() {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"option_config_ {}",option_config_);
     option_config_++;
     if (option_config_ >= kEnd) {
       // 结束测试
@@ -952,8 +953,8 @@ TEST_F(DBTest, GetMemUsage) {
   } while (ChangeOptions());
 }
 // 插入a,b,c 三个key，每个key 都会加 sequence,即  a1,b2,c3
-// 如果插入 b,b,a  skiplist 存储顺序为 a3,b2,b1
-// 如果不指定版本号，get(b), 会在skip_list 中查找 b3,返回 b2,
+// 如果插入 b,b,a  skip list 存储顺序为 a3,b2,b1
+// 如果不指定版本号，get(b), 会在skip_list 中查找 b3 (因为此时seq 最大值是3),返回 b2,
 // 如果指定版本号 1，get(b), 会在skip_list 中查找 b1,返回 b1
 TEST_F(DBTest, GetSnapshotSmall) {
   ASSERT_LEVELDB_OK(Put("b", "vb_1"));
@@ -1246,6 +1247,51 @@ TEST_F(DBTest, IterEmpty) {
   ASSERT_EQ(IterStatus(iter), "(invalid)");
 
   delete iter;
+}
+
+
+TEST(CustomDbtest,IterMemAndLdb) {
+  Options options;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.filter_policy = NewBloomFilterPolicy(10);
+  options.block_restart_interval = 2;
+
+  const std::string dbname = "/tmp/db_test";
+  DB* db = nullptr;
+  Status status = DestroyDB(dbname, options);
+  ASSERT_TRUE(status.ok());
+  status = DB::Open(options, dbname, &db);
+  ASSERT_TRUE(status.ok()) << status.ToString();
+  constexpr WriteOptions w_opt;
+  constexpr ReadOptions r_opt;
+  db->Put(w_opt,"a","va0");
+  db->Put(w_opt,"b","vb0");
+  db->Put(w_opt,"c","vc0");
+  db->Put(w_opt,"d","vd0");
+  auto a = Slice("a");
+  auto c = Slice("c");
+  // 执行 CompactRange 前，会先执行 TEST_CompactMemTable(), 即将 MemTabl 中的数据写到 ldb 文件中
+  // 故 a,b,c,d 全部写到文件中
+  db->CompactRange(&a,&c);
+  db->Put(w_opt,"a","va1");
+  db->Put(w_opt,"d","vd1");
+  Iterator* iter = db->NewIterator(ReadOptions());
+  iter->SeekToFirst();
+  ASSERT_EQ(iter->key().ToString(),"a");
+  ASSERT_EQ(iter->value().ToString(),"va1");
+  iter->Next();
+  ASSERT_EQ(iter->key().ToString(),"b");
+  ASSERT_EQ(iter->value().ToString(),"vb0");
+  iter->Next();
+  ASSERT_EQ(iter->key().ToString(),"c");
+  ASSERT_EQ(iter->value().ToString(),"vc0");
+  iter->Next();
+  ASSERT_EQ(iter->key().ToString(),"d");
+  ASSERT_EQ(iter->value().ToString(),"vd1");
+
+  delete iter;
+  delete db;
 }
 
 TEST_F(DBTest, IterSingle) {
@@ -2023,6 +2069,8 @@ TEST_F(DBTest, CustomComparator) {
       EXPECT_TRUE(x.size() >= 2 && x[0] == '[' && x[x.size() - 1] == ']') << EscapeString(x);
       int val;
       char ignored;
+      // 尝试从 x.ToString() 的结果中解析出一个整数，格式为 [数字] 形式
+      // %i 表示整数，%c 用于捕获并忽略 ] 后的字符
       EXPECT_TRUE(sscanf(x.ToString().c_str(), "[%i]%c", &val, &ignored) == 1) << EscapeString(x);
       return val;
     }
@@ -2067,27 +2115,27 @@ TEST_F(DBTest, ManualCompaction) {
   Compact("", "c");
   ASSERT_EQ("1,1,1", FilesPerLevel());
   //
-  // // Compaction range falls after files
-  // Compact("r", "z");
-  // ASSERT_EQ("1,1,1", FilesPerLevel());
+  // Compaction range falls after files
+  Compact("r", "z");
+  ASSERT_EQ("1,1,1", FilesPerLevel());
   //
-  // // Compaction range overlaps files
-  // Compact("p1", "p9");
-  // ASSERT_EQ("0,0,1", FilesPerLevel());
+  // Compaction range overlaps files
+  Compact("p1", "p9");
+  ASSERT_EQ("0,0,1", FilesPerLevel());
   //
-  // // Populate a different range
-  // MakeTables(3, "c", "e");
-  // ASSERT_EQ("1,1,2", FilesPerLevel());
-  //
-  // // Compact just the new range
-  // Compact("b", "f");
-  // ASSERT_EQ("0,0,2", FilesPerLevel());
-  //
-  // // Compact all
-  // MakeTables(1, "a", "z");
-  // ASSERT_EQ("0,1,2", FilesPerLevel());
-  // db_->CompactRange(nullptr, nullptr);
-  // ASSERT_EQ("0,0,1", FilesPerLevel());
+  // Populate a different range
+  MakeTables(3, "c", "e");
+  ASSERT_EQ("1,1,2", FilesPerLevel());
+
+  // Compact just the new range
+  Compact("b", "f");
+  ASSERT_EQ("0,0,2", FilesPerLevel());
+
+  // Compact all
+  MakeTables(1, "a", "z");
+  ASSERT_EQ("0,1,2", FilesPerLevel());
+  db_->CompactRange(nullptr, nullptr);
+  ASSERT_EQ("0,0,1", FilesPerLevel());
 }
 
 TEST_F(DBTest, DBOpen_Options) {

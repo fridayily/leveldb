@@ -74,7 +74,7 @@ class TwoLevelIterator : public Iterator {
   // 该值存在 index_block 中
   std::string data_block_handle_;
 };
-
+// BlockFunction: GetFileIterator  arg: vset_->table_cache_
 TwoLevelIterator::TwoLevelIterator(Iterator* index_iter,
                                    BlockFunction block_function, void* arg,
                                    const ReadOptions& options)
@@ -207,7 +207,7 @@ void TwoLevelIterator::InitDataBlock() {
 }
 
 }  // namespace
-
+// Iterator: LevelFileNumIterator   BlockFunction: GetFileIterator  arg: vset_->table_cache_
 Iterator* NewTwoLevelIterator(Iterator* index_iter,
                               BlockFunction block_function, void* arg,
                               const ReadOptions& options) {

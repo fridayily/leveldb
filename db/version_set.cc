@@ -327,7 +327,8 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
 
   // Search level-0 in order from newest to oldest.
   std::vector<FileMetaData*> tmp;
-  tmp.reserve(files_[0].size());  // level 0 的文件个数
+  tmp.reserve(files_[0].size());
+  // 在 Level 0 中查找
   for (uint32_t i = 0; i < files_[0].size(); i++) {
     FileMetaData* f = files_[0][i];
     if (ucmp->Compare(user_key, f->smallest.user_key()) >= 0 &&
@@ -359,7 +360,7 @@ void Version::ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
       if (ucmp->Compare(user_key, f->smallest.user_key()) < 0) {
         // All of "f" is past any data for user_key 要查找的key 比 返回的 f
         // 的最小key还小，即不再范围内
-      } else { // func = leveldb::Version::Get::Match
+      } else {  // func = leveldb::Version::Get::Match
         if (!(*func)(arg, level, f)) {
           return;
         }
@@ -386,16 +387,17 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
     bool found;
     // 类中定义的静态函数
     /*
-    * State::Match(void *, int, leveldb::FileMetaData *) version_set.cc:389
-    * leveldb::Version::ForEachOverlapping(leveldb::Slice, leveldb::Slice, void *, bool (*)(void *, int, leveldb::FileMetaData *)) version_set.cc:363
-    * leveldb::Version::Get(const leveldb::ReadOptions &, const leveldb::LookupKey &, std::string *, leveldb::Version::GetStats *) version_set.cc:447
-    * leveldb::DBImpl::Get(const leveldb::ReadOptions &, const leveldb::Slice &, std::string *) db_impl.cc:1445
+     * State::Match(void *, int, leveldb::FileMetaData *) version_set.cc:389
+     * leveldb::Version::ForEachOverlapping(leveldb::Slice, leveldb::Slice, void *, bool (*)(void *,
+     * int, leveldb::FileMetaData *)) version_set.cc:363 leveldb::Version::Get(const
+     * leveldb::ReadOptions &, const leveldb::LookupKey &, std::string *, leveldb::Version::GetStats
+     * *) version_set.cc:447 leveldb::DBImpl::Get(const leveldb::ReadOptions &, const leveldb::Slice
+     * &, std::string *) db_impl.cc:1445
      */
     static bool Match(void* arg, int level, FileMetaData* f) {
       State* state = reinterpret_cast<State*>(arg);
 
-      if (state->stats->seek_file == nullptr &&
-          state->last_file_read != nullptr) {
+      if (state->stats->seek_file == nullptr && state->last_file_read != nullptr) {
         // Macth 函数调用超过一次
         // We have had more than one seek for this read.  Charge the 1st file.
         state->stats->seek_file = state->last_file_read;
@@ -540,7 +542,6 @@ bool Version::OverlapInLevel(int level, const Slice* smallest_user_key,
                                largest_user_key);
 }
 
-
 /*
  *   确定 memtable 的输出应该位于哪一层
  *   减少压缩次数
@@ -606,7 +607,7 @@ void Version::GetOverlappingInputs(int level, const InternalKey* begin, const In
                                    std::vector<FileMetaData*>* inputs) {
   assert(level >= 0);
   assert(level < config::kNumLevels);
-  // note: 注意这里的clear, 因此 该函数是 overwrite 而不是 append
+  // note: 注意这里的 clear, 因此该函数是 overwrite 而不是 append
   inputs->clear();
   Slice user_begin, user_end;
   if (begin != nullptr) {
@@ -632,12 +633,16 @@ void Version::GetOverlappingInputs(int level, const InternalKey* begin, const In
         // added file has expanded the range.  If so, restart search.
         //   user_begin > f.smallest 之前，重新设置要比较的开始位置
         //  假设 f1:<110,120> f2:<115,130> 要比较 <105,115>
-        //  第一轮: file_1 file_start: 110 file_limit: 120 user_begin: 105 user_end: 115
-        //  inputs_size: 1 第二轮: file_1 file_start: 110 file_limit: 120 user_begin: 105 user_end:
-        //  120 inputs_size: 1 第三轮: file_2 file_start: 115 file_limit: 130 user_begin: 105
-        //  user_end: 120 inputs_size: 2 第四轮: file_1 file_start: 110 file_limit: 120 user_begin:
-        //  105 user_end: 130 inputs_size: 1 第五轮: file_2 file_start: 115 file_limit: 130
-        //  user_begin: 105 user_end: 130 inputs_size: 2
+        //  第一轮:
+        //     file_1 file_start: 110 file_limit: 120 user_begin: 105 user_end: 115 inputs_size: 1
+        //  第二轮:
+        //     file_1 file_start: 110 file_limit: 120 user_begin: 105 user_end: 120 inputs_size: 1
+        //  第三轮:
+        //     file_2 file_start: 115 file_limit: 130 user_begin: 105 user_end: 120 inputs_size: 2
+        //  第四轮:
+        //     file_1 file_start: 110 file_limit: 120 user_begin: 105 user_end: 130 inputs_size: 1
+        //  第五轮:
+        //     file_2 file_start: 115 file_limit: 130 user_begin: 105 user_end: 130 inputs_size: 2
 
         SPDLOG_LOGGER_INFO(
             SpdLogger::Log(),
@@ -1161,7 +1166,7 @@ Status VersionSet::Recover(bool* save_manifest) {
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
       SPDLOG_LOGGER_INFO(SpdLogger::Log(),
                          "Recovering version set: read {} records ({:d} bytes total) from {}",
-                         read_records, record.size(),dscname);
+                         read_records, record.size(), dscname);
       ++read_records;
       VersionEdit edit;
       // MANIFEST 文件配置读到 record,record 解码到 edit 中
@@ -1840,7 +1845,7 @@ void VersionSet::SetupOtherInputs(Compaction* c) {
 }
 
 Compaction* VersionSet::CompactRange(int level, const InternalKey* begin, const InternalKey* end) {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin at level {}", level);
   std::vector<FileMetaData*> inputs;
   // 将 level 层与 begin,end 重合的文件放在 inputs 中
   current_->GetOverlappingInputs(level, begin, end, &inputs);

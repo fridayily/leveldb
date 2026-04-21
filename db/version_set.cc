@@ -458,6 +458,7 @@ Status Version::Get(const ReadOptions& options, const LookupKey& k, std::string*
   return state.found ? state.s : Status::NotFound(Slice());
 }
 
+// 当一个 SST 文件被频繁查询时，该方法会减少其 allowed_seeks 计数，当计数为零时，将其标记为待压缩文件
 bool Version::UpdateStats(const GetStats& stats) {
   FileMetaData* f = stats.seek_file;
   if (f != nullptr) {
@@ -471,7 +472,12 @@ bool Version::UpdateStats(const GetStats& stats) {
   return false;
 }
 
-// 记录读取的样本
+/*
+ * 分析键的重叠情况，识别可能需要压缩的文件，从而优化查询性能。
+ * 当一个键在多个文件中存在时（state.matches >= 2），说明：
+ *    该键有多个版本分布在不同文件中
+ *    这些文件可能需要压缩合并，减少文件数量，提高查询性能
+ */
 bool Version::RecordReadSample(Slice internal_key) {
   ParsedInternalKey ikey;
   // 将internal_key 拆分成 ParsedInternalKey
@@ -502,7 +508,8 @@ bool Version::RecordReadSample(Slice internal_key) {
 
   State state;  // 内部类的初始化
   state.matches = 0;
-  // 对于每一个重叠的key,调用 Match 函数
+  // 遍历所有层级的文件，检查哪些文件与给定的键范围重叠。
+  // 对于 Level 0，需要检查所有文件；对于 Level 1+，可以使用二分查找快速定位。
   // internal_key 是 user_key + type + sequence ，ikey 是拆分好的 internal_key
   ForEachOverlapping(ikey.user_key, internal_key, &state, &State::Match);
 
@@ -513,7 +520,8 @@ bool Version::RecordReadSample(Slice internal_key) {
   // 必须至少有两个matches,因为我们需要合并多个文件，
   // 但是一个文件中包含多个重叠的key，有可能只匹配一次，此时不会触发 compaction
 
-  // 如果只 match 一次，不会触发 compaction,2 次时有可能
+  // 如果只 match 一次，调用 UpdateStats 方法
+  // UpdateStats 会减少匹配文件的 allowed_seeks 计数，可能触发压缩
   if (state.matches >= 2) {
     // 1MB cost is about 1 seek (see comment in Builder::Apply).
     return UpdateStats(state.stats);

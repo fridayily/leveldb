@@ -46,6 +46,8 @@ TableCache::~TableCache() {
  * 每次写入 ldb 文件都会重新打开，验证 ldb 文件是否合法
  * 并解析 ldb 文件的索引信息实例化一个 TableFile 实例，并将其存到 TableCache 中
  * 这样后续查找时可以避免重复解析索引信息
+ *
+ * note size 参数的作用是方便从文件的尾部读取元信息
  */
 Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Handle** handle) {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "FindTable: add tablefile to TableCache");
@@ -98,6 +100,8 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size, Cache::Ha
  * 1. 将 file_number 对应 table 存到 TableCache 中，返回一个 handle
  * 2. 构造一个二级迭代器
  * 3. 注册这个文件对应 handle 到 cleanup_head_，迭代器失效时自动析构
+ *
+ * note size 参数的作用是方便从文件的尾部读取元信息
  */
 Iterator* TableCache::NewIterator(const ReadOptions& options, uint64_t file_number,
                                   uint64_t file_size, Table** tableptr) {

@@ -46,6 +46,7 @@ struct Table::Rep {
  *    Table 只有一个私有成员变量 Rep
  *    Rep 包含 index_block,filter_block 用来辅助读取 file 中真实的 kv 数据
  *    Table 类的所有方法都通过 rep_ 指针访问实际数据
+ *
  */
 Status Table::Open(const Options& options, RandomAccessFile* file,
                    uint64_t size, Table** table) {
@@ -214,7 +215,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
       EncodeFixed64(cache_key_buffer + 8, handle.offset());
       // 将 cache_id 和 offset 封装成一个 key
       Slice key(cache_key_buffer, sizeof(cache_key_buffer));
-      // 读取某个数据块时，先检查数据块是否在 block_cache 中
+      // note: 读取某个数据块时，先检查数据块是否在 block_cache 中
       // 这里的key由 cache_id 和 offset 组成
       cache_handle = block_cache->Lookup(key);
       // 如果在 block_cache 找到，直接从缓存块中取得数据块
@@ -263,10 +264,10 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
 // BlockReader是一个函数（arg，options，index_value）， const_cast<Table*>(this) 就是 arg
 Iterator* Table::NewIterator(const ReadOptions& options) const {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "create NewTwoLevelIterator of table");
+  // 二级迭代器，传入的参数是迭代器，返回的是迭代器
   return NewTwoLevelIterator(
-      // 二级迭代器，传入的参数是迭代器，返回的是迭代器
       rep_->index_block->NewIterator(rep_->options.comparator),
-      &Table::BlockReader, const_cast<Table*>(this), options);
+      &Table::BlockReader, const_cast<Table*>(this), options,"index_table_iter");
 }
 
 /*

@@ -4,6 +4,8 @@
 
 #include "table/two_level_iterator.h"
 
+#include <utility>
+
 #include "leveldb/table.h"
 
 #include "table/block.h"
@@ -18,8 +20,8 @@ typedef Iterator* (*BlockFunction)(void*, const ReadOptions&, const Slice&);
 
 class TwoLevelIterator : public Iterator {
  public:
-  TwoLevelIterator(Iterator* index_iter, BlockFunction block_function,
-                   void* arg, const ReadOptions& options);
+  TwoLevelIterator(Iterator* index_iter, BlockFunction block_function, void* arg,
+                   const ReadOptions& options,std::string iter_name);
 
   ~TwoLevelIterator() override;
 
@@ -57,6 +59,7 @@ class TwoLevelIterator : public Iterator {
   void SkipEmptyDataBlocksBackward();
   void SetDataIterator(Iterator* data_iter);
   void InitDataBlock();
+  std::string CustomIterName();
 
   BlockFunction block_function_;
   void* arg_;
@@ -73,16 +76,17 @@ class TwoLevelIterator : public Iterator {
   // data_block_handle_ 存储了 data_block 的 offset 和 size
   // 该值存在 index_block 中
   std::string data_block_handle_;
+  std::string custom_iter_name;
 };
 // BlockFunction: GetFileIterator  arg: vset_->table_cache_
-TwoLevelIterator::TwoLevelIterator(Iterator* index_iter,
-                                   BlockFunction block_function, void* arg,
-                                   const ReadOptions& options)
+TwoLevelIterator::TwoLevelIterator(Iterator* index_iter, BlockFunction block_function, void* arg,
+                                   const ReadOptions& options,std::string  iter_name)
     : block_function_(block_function),
       arg_(arg),
       options_(options),
       index_iter_(index_iter),  // 调用 IteratorWrapper(index_iter)
-      data_iter_(nullptr) {}    // 调用 IteratorWrapper(nullptr)
+      data_iter_(nullptr),
+      custom_iter_name(std::move(iter_name)) {}  // 调用 IteratorWrapper(nullptr)
 
 TwoLevelIterator::~TwoLevelIterator() = default;
 
@@ -93,18 +97,23 @@ void TwoLevelIterator::Seek(const Slice& target) {
   SkipEmptyDataBlocksForward();
 }
 
+/*
+ * 这里可能会构造两个 TwoLevelIterator
+ * 第一次: 构造 table_cache 的迭代器
+ * 第二次：构造 block_cache 的迭代器
+ *
+ */
 void TwoLevelIterator::SeekToFirst() {
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToFirst of index iter begin");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToFirst of index iter begin {}", CustomIterName());
   index_iter_.SeekToFirst();  // 取出index_block的第一个key
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "InitDataBlock");
   InitDataBlock();
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),
-                     "InitDataBlock success, and seek to first of data block");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "InitDataBlock success, and seek to first of data block");
 
   if (data_iter_.iter() != nullptr) data_iter_.SeekToFirst();
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SkipEmptyDataBlocksForward");
   SkipEmptyDataBlocksForward();
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToFirst of index iter end");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToFirst of index iter end {}", CustomIterName());
 }
 
 void TwoLevelIterator::SeekToLast() {
@@ -112,12 +121,10 @@ void TwoLevelIterator::SeekToLast() {
   index_iter_.SeekToLast();
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "InitDataBlock");
   InitDataBlock();
-  SPDLOG_LOGGER_INFO(SpdLogger::Log(),
-                     "InitDataBlock success, and seek to last of data block");
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(), "InitDataBlock success, and seek to last of data block");
   if (data_iter_.iter() != nullptr) data_iter_.SeekToLast();
   SkipEmptyDataBlocksBackward();
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "SeekToLast of index iter end");
-
 }
 
 void TwoLevelIterator::Next() {
@@ -144,8 +151,7 @@ void TwoLevelIterator::SkipEmptyDataBlocksForward() {
   while (data_iter_.iter() == nullptr || !data_iter_.Valid()) {
     // Move to next block
     if (!index_iter_.Valid()) {
-      SPDLOG_LOGGER_INFO(SpdLogger::Log(),
-                         "index iter is invalid and set data iter to null");
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(), "index iter is invalid and set data iter to null");
       SetDataIterator(nullptr);
       return;
     }
@@ -177,41 +183,49 @@ void TwoLevelIterator::SetDataIterator(Iterator* data_iter) {
   if (data_iter_.iter() != nullptr) SaveError(data_iter_.status());
   data_iter_.Set(data_iter);
 }
-// 两级迭代器，以及索引index block,二级是 data block
+// 两级迭代器，以及索引 index block,二级是 data block
 void TwoLevelIterator::InitDataBlock() {
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "begin");
   if (!index_iter_.Valid()) {
     // 索引迭代器无效，则将数据迭代器设为NULL
-    SPDLOG_LOGGER_INFO(SpdLogger::Log(),
-                       "index iter invalid, set data iter to null");
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(), "index iter invalid, set data iter to null");
     SetDataIterator(nullptr);
   } else {
     SPDLOG_LOGGER_INFO(SpdLogger::Log(), "index iter valid, init data block");
-    // index_iter的value 指向data_block的索引
+    // index_iter 的value 指向 data_block 的索引
+    // handle 可以是 BlockHandle
+    //        可以是 LevelFileNumIterator 返回的 value, 由 file_number,file_size 组成
     Slice handle = index_iter_.value();
-    if (data_iter_.iter() != nullptr &&
-        handle.compare(data_block_handle_) == 0) {
+    if (data_iter_.iter() != nullptr && handle.compare(data_block_handle_) == 0) {
       // data_iter_ is already constructed with this iterator, so
       // no need to change anything
     } else {
       // data_block 的 handle 是存储在 index_block 中
-      // block_function_可以是 Table::BlockReader
-      // (leveldb::Table*)arg_ 可以显示实例化后的 Table, 其有一个私有成员变量 Rep
+      // block_function_ 有两种
+      // (1) Table::BlockReader
+      //       index_iter 为 index_block 的迭代器，用于读取 table 中的 kv 数据
+      //       handle 为 BlockHandle (offset_,size_)
+      // (2) GetFileIterator
+      //       index_iter 为 LevelFileNumIterator, 读取 table_cache_，
+      //       以 (file_number,TableAndFile) 存在 LRUCache 中
+      //       handle 为 file_number,file_size
       Iterator* iter = (*block_function_)(arg_, options_, handle);
       data_block_handle_.assign(handle.data(), handle.size());
       SetDataIterator(iter);
     }
   }
   SPDLOG_LOGGER_INFO(SpdLogger::Log(), "end");
-
 }
+
+std::string TwoLevelIterator::CustomIterName() {
+  return custom_iter_name;
+};
 
 }  // namespace
 // Iterator: LevelFileNumIterator   BlockFunction: GetFileIterator  arg: vset_->table_cache_
-Iterator* NewTwoLevelIterator(Iterator* index_iter,
-                              BlockFunction block_function, void* arg,
-                              const ReadOptions& options) {
-  return new TwoLevelIterator(index_iter, block_function, arg, options);
+Iterator* NewTwoLevelIterator(Iterator* index_iter, BlockFunction block_function, void* arg,
+                              const ReadOptions& options,const std::string& custom_iter_name) {
+  return new TwoLevelIterator(index_iter, block_function, arg, options,custom_iter_name);
 }
 
 }  // namespace leveldb

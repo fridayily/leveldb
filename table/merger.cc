@@ -48,6 +48,7 @@ class MergingIterator : public Iterator {
 
   void SeekToFirst() override {
     for (int i = 0; i < n_; i++) {
+      SPDLOG_LOGGER_INFO(SpdLogger::Log(),"seek {} iter in child_",i);
       children_[i].SeekToFirst();
     }
     FindSmallest();

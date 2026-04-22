@@ -242,12 +242,15 @@ class Version::LevelFileNumIterator : public Iterator {
   // Backing store for value().  Holds the file number and size.
   mutable char value_buf_[16];
 };
-
+// file_value 可以由 ldb_file_number 和 ldb_file_size 组成
 static Iterator* GetFileIterator(void* arg, const ReadOptions& options, const Slice& file_value) {
+  SPDLOG_LOGGER_INFO(SpdLogger::Log(),"begin");
   TableCache* cache = reinterpret_cast<TableCache*>(arg);
   if (file_value.size() != 16) {
     return NewErrorIterator(Status::Corruption("FileReader invoked with unexpected value"));
   } else {
+    // note size 参数的作用是方便从文件的尾部读取元信息
+    // 将 file_number 的 table 存入 table_cache 中
     return cache->NewIterator(options, DecodeFixed64(file_value.data()),
                               DecodeFixed64(file_value.data() + 8));
   }
@@ -255,7 +258,7 @@ static Iterator* GetFileIterator(void* arg, const ReadOptions& options, const Sl
 
 Iterator* Version::NewConcatenatingIterator(const ReadOptions& options, int level) const {
   return NewTwoLevelIterator(new LevelFileNumIterator(vset_->icmp_, &files_[level]),
-                             &GetFileIterator, vset_->table_cache_, options);
+                             &GetFileIterator, vset_->table_cache_, options,"level_file_iter");
 }
 
 void Version::AddIterators(const ReadOptions& options, std::vector<Iterator*>* iters) {
@@ -1540,7 +1543,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         //   (file_number + file_size) 进行初始化
         list[num++] =
             NewTwoLevelIterator(new Version::LevelFileNumIterator(icmp_, &c->inputs_[which]),
-                                &GetFileIterator, table_cache_, options);
+                                &GetFileIterator, table_cache_, options,"level_file_iter");
       }
     }
   }

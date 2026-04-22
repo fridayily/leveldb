@@ -76,6 +76,7 @@ class IteratorWrapper {
     Update();
   }
   void SeekToFirst() {
+    SPDLOG_LOGGER_INFO(SpdLogger::Log(),"--------");
     assert(iter_);
     iter_->SeekToFirst(); // 将key,value 存到 iter的私有变量
     Update();

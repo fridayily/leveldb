@@ -140,6 +140,8 @@ static int TableCacheSize(const Options& sanitized_options) {
 // 实现数据库的操作
 /*
  * table_cache_: 缓存 SST 文件的表对象（包含索引块、元数据块等）
+ *    key: file_number
+ *    value: TableAndFile
  *
  * options_.block_cache: 缓存从 SST 文件中读取的数据块
  *    缓存键：由 cache_id 和数据块偏移量组成

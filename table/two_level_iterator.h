@@ -24,7 +24,7 @@ Iterator* NewTwoLevelIterator(
     Iterator* index_iter,
     Iterator* (*block_function)(void* arg, const ReadOptions& options,
                                 const Slice& index_value),
-    void* arg, const ReadOptions& options);
+    void* arg, const ReadOptions& options,const std::string &custom_iter_name);
 
 }  // namespace leveldb
 
